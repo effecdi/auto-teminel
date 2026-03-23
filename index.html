@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude CLI Terminal</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="node_modules/xterm/css/xterm.css">
+</head>
+<body>
+    <!-- Titlebar -->
+    <div class="titlebar">
+        <div class="titlebar-drag-region"></div>
+        <div class="titlebar-title">Claude CLI Terminal</div>
+        <div class="titlebar-actions">
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot disconnected"></span>
+                <span class="status-text">No Project</span>
+            </div>
+            <button class="titlebar-btn" onclick="openSettings()">⚙️</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Left: Projects List -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Projects</h2>
+                <button class="btn-icon" onclick="addProject()">+</button>
+            </div>
+            <div class="projects-list" id="projectsList"></div>
+        </div>
+
+        <!-- Center: Terminal Area -->
+        <div class="main-content">
+            <div class="content-header">
+                <div class="project-info" id="currentProjectInfo">
+                    <span class="project-name">Select a project to start Claude CLI</span>
+                </div>
+                <div class="terminal-toolbar">
+                    <button class="toolbar-btn" onclick="restartTerminal()" title="Kill & restart Claude CLI for current project">🔄 Restart</button>
+                    <button class="toolbar-btn" onclick="killTerminal()" title="Kill terminal process">⏹ Kill</button>
+                    <button class="toolbar-btn" onclick="clearTerminal()" title="Clear terminal screen">🧹 Clear</button>
+                    <button class="toolbar-btn toolbar-btn-image" onclick="selectImageFile()" title="Attach files (images, video, audio, docs)">📎 Attach</button>
+                </div>
+            </div>
+
+            <!-- Image Preview Bar -->
+            <div class="image-preview-bar" id="imagePreviewBar" style="display:none;">
+                <div class="image-preview-scroll" id="imagePreviewScroll"></div>
+                <div class="image-preview-actions">
+                    <button class="preview-action-btn insert-btn" onclick="insertAllImagePaths()" title="Send file paths to terminal">📎 Send Paths</button>
+                    <button class="preview-action-btn clear-btn" onclick="clearAttachedImages()" title="Remove all attached images">✕ Clear All</button>
+                </div>
+            </div>
+
+            <!-- Queue Progress Bar -->
+            <div class="queue-progress-bar" id="queueProgressBar" style="display:none;">
+                <div class="queue-progress-info">
+                    <span class="queue-label" id="queueLabel">Queue: 0/0</span>
+                    <span class="queue-status" id="queueStatus">Idle</span>
+                </div>
+                <div class="queue-progress-track">
+                    <div class="queue-progress-fill" id="queueProgressFill" style="width:0%"></div>
+                </div>
+            </div>
+
+            <!-- Terminal Container -->
+            <div id="terminal-container">
+                <div class="terminal-placeholder" id="terminalPlaceholder">
+                    <div class="placeholder-icon">⌨️</div>
+                    <h2>Claude CLI Terminal</h2>
+                    <p>Select a project from the left panel to launch Claude CLI</p>
+                    <div class="placeholder-hint">
+                        <code>claude</code> must be installed on your system
+                    </div>
+                </div>
+            </div>
+
+            <!-- Prompt Area (below terminal) -->
+            <div class="prompt-area">
+                <div class="prompt-row">
+                    <textarea id="taskInput" placeholder="Write your request for Claude... (Enter to enqueue)" rows="1"></textarea>
+                    <button class="task-send-btn" onclick="sendTask()">Enqueue</button>
+                </div>
+                <div class="prompt-controls">
+                    <button class="queue-ctrl-btn" id="queuePauseBtn" onclick="toggleQueuePause()">⏸ Pause</button>
+                    <button class="queue-ctrl-btn" onclick="clearDoneTasks()" title="Remove completed tasks">🧹 Clear Done</button>
+                    <button class="queue-ctrl-btn queue-danger" onclick="clearAllTasks()" title="Clear entire queue">🗑️ Clear All</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Automation Panel (Tabbed) -->
+        <div class="info-panel">
+            <div class="info-header"><h3>Session Info</h3></div>
+
+            <div class="info-content">
+                <div class="info-section">
+                    <div class="info-label">Status</div>
+                    <div class="info-value" id="terminalStatus">Idle</div>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Project</div>
+                    <div class="info-value" id="infoProject">—</div>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Path</div>
+                    <div class="info-value mono" id="infoPath">—</div>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Git Branch</div>
+                    <div class="info-value" id="infoBranch">—</div>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Shell PID</div>
+                    <div class="info-value mono" id="infoPid">—</div>
+                </div>
+            </div>
+
+            <!-- Live Dashboard -->
+            <div class="dashboard-section">
+                <div class="dashboard-grid">
+                    <div class="dash-card" id="dashCardErrors" onclick="switchAutoTab('activity')" title="Click to view error activity">
+                        <div class="dash-card-icon icon-errors">⚠</div>
+                        <div class="dash-card-body">
+                            <div class="dash-card-value" id="dashErrorCount">0</div>
+                            <div class="dash-card-label">Errors</div>
+                            <div class="dash-card-sub" id="dashErrorSub">this session</div>
+                        </div>
+                    </div>
+                    <div class="dash-card" id="dashCardBuild" onclick="switchAutoTab('health')" title="Click to view build details">
+                        <div class="dash-card-icon icon-build">⚡</div>
+                        <div class="dash-card-body">
+                            <div class="dash-card-value" id="dashBuildStatus">No check</div>
+                            <div class="dash-card-label">Build</div>
+                            <div class="dash-card-sub" id="dashBuildSub">run health check</div>
+                        </div>
+                    </div>
+                    <div class="dash-card" id="dashCardSecurity" onclick="switchAutoTab('security')" title="Click to view security details">
+                        <div class="dash-card-icon icon-security">🔒</div>
+                        <div class="dash-card-body">
+                            <div class="dash-card-value" id="dashSecurityScore">No check</div>
+                            <div class="dash-card-label">Security</div>
+                            <div class="dash-card-sub" id="dashSecuritySub">run health check</div>
+                        </div>
+                    </div>
+                    <div class="dash-card" id="dashCardHealth" onclick="runHealthCheckNow()" title="Click to run health check">
+                        <div class="dash-card-icon icon-health">♥</div>
+                        <div class="dash-card-body">
+                            <div class="dash-card-value" id="dashHealthStatus">No check</div>
+                            <div class="dash-card-label">Health</div>
+                            <div class="dash-card-sub" id="dashHealthSub">click to run</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="auto-status-row">
+                    <span class="auto-status-badge on" id="badgeAutoFix" onclick="toggleBadge('autoFix')" title="Error auto-fix: Click to toggle">Auto-fix</span>
+                    <span class="auto-status-badge on" id="badgeAutoVerify" onclick="toggleBadge('autoVerify')" title="Auto-verify after fix/task: Click to toggle">Verify</span>
+                    <span class="auto-status-badge on" id="badgeAutoApprove" onclick="toggleBadge('autoApprove')" title="Auto-approve Claude prompts: Click to toggle">Approve</span>
+                    <span class="auto-status-badge on" id="badgeAutoRestart" onclick="toggleBadge('autoRestart')" title="Auto-restart on crash: Click to toggle">Restart</span>
+                </div>
+            </div>
+
+            <!-- Health Check Dashboard -->
+            <div class="dashboard-section" id="healthCheckDashboard">
+                <div class="hc-status-row" id="healthCheckStatus">
+                    <span class="hc-status-badge idle">No runs yet</span>
+                </div>
+                <div class="hc-progress-container">
+                    <div class="hc-progress-track">
+                        <div class="hc-progress-fill" id="hcProgressFill" style="width:0%"></div>
+                    </div>
+                    <div class="hc-progress-label" id="hcProgressLabel"></div>
+                </div>
+                <div class="hc-actions-row">
+                    <button class="tab-action-btn run-btn hc-run-btn" id="healthCheckRunBtn" onclick="runHealthCheckNow()">▶ Run Now</button>
+                    <button class="tab-action-btn hc-stop-btn" id="healthCheckStopBtn" onclick="stopHealthCheckNow()" style="display:none;">⏹ Stop</button>
+                    <button class="btn-icon-sm" onclick="clearHealthCheckHistory()" title="Clear history" style="margin-left:auto;">🗑️</button>
+                </div>
+            </div>
+
+            <!-- Tab Bar -->
+            <div class="auto-tabs">
+                <button class="auto-tab active" data-tab="tasks" onclick="switchAutoTab('tasks')">Tasks</button>
+                <button class="auto-tab" data-tab="activity" onclick="switchAutoTab('activity')">Activity</button>
+                <button class="auto-tab" data-tab="templates" onclick="switchAutoTab('templates')">Templates</button>
+                <button class="auto-tab" data-tab="schedules" onclick="switchAutoTab('schedules')">Schedules</button>
+                <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
+                <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
+            </div>
+
+            <!-- Tab: Tasks — queue list only (input moved to main area) -->
+            <div class="auto-tab-content active" id="tab-tasks">
+                <div class="tab-scroll" id="tasksList">
+                    <div class="history-empty">Add tasks to the queue — they will run sequentially</div>
+                </div>
+            </div>
+
+            <!-- Tab: Activity — unified automation log -->
+            <div class="auto-tab-content" id="tab-activity">
+                <div class="tab-toolbar">
+                    <span class="activity-summary" id="activitySummary"></span>
+                    <button class="btn-icon-sm" onclick="clearActivity()" title="Clear activity log">🗑️</button>
+                </div>
+                <div class="tab-scroll" id="activityList">
+                    <div class="history-empty">Automation activity will appear here</div>
+                </div>
+            </div>
+
+            <!-- Tab: Templates -->
+            <div class="auto-tab-content" id="tab-templates">
+                <div class="tab-toolbar">
+                    <button class="tab-action-btn" onclick="showTemplateModal()">+ New Template</button>
+                </div>
+                <div class="tab-scroll" id="templatesList">
+                    <div class="history-empty">No templates yet</div>
+                </div>
+            </div>
+
+            <!-- Tab: Schedules -->
+            <div class="auto-tab-content" id="tab-schedules">
+                <div class="tab-toolbar">
+                    <button class="tab-action-btn" onclick="showScheduleModal()">+ New Schedule</button>
+                    <button class="tab-action-btn send-all-btn" onclick="sendToAllProjects()">📡 Send to All</button>
+                </div>
+                <div class="tab-scroll" id="scheduleList">
+                    <div class="history-empty">No schedules yet</div>
+                </div>
+            </div>
+
+            <!-- Tab: Security -->
+            <div class="auto-tab-content" id="tab-security">
+                <div class="tab-toolbar">
+                    <span style="font-size:10px; color:var(--text-muted); flex:1;">Click a check to run it on the current project</span>
+                </div>
+                <div class="tab-scroll" id="securityList"></div>
+            </div>
+
+            <!-- Tab: Health Check -->
+            <div class="auto-tab-content" id="tab-health">
+                <div class="hc-section-header">Enabled Checks</div>
+                <div class="hc-checks-list" id="healthCheckChecksList"></div>
+                <div class="hc-section-header">Results</div>
+                <div class="tab-scroll" id="healthCheckResultsList">
+                    <div class="history-empty">No health check results yet. Click "Run Now" to start.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal: Add Project -->
+    <div class="modal" id="addProjectModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Project</h2>
+                <button class="btn-icon" onclick="closeModal('addProjectModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Project Name</label>
+                    <input type="text" id="projectName" placeholder="My Awesome App">
+                </div>
+                <div class="form-group">
+                    <label>Project Path</label>
+                    <div class="input-group">
+                        <input type="text" id="projectPath" placeholder="/path/to/project" readonly>
+                        <button class="btn-secondary" onclick="selectProjectFolder()">Select Folder</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description (optional)</label>
+                    <textarea id="projectDesc" placeholder="Project description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Claude CLI Args (optional)</label>
+                    <input type="text" id="projectClaudeArgs" placeholder="e.g. --auto-approve">
+                    <small>Additional arguments passed to <code>claude</code></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('addProjectModal')">Cancel</button>
+                <button class="btn-primary" onclick="saveProject()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Settings -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="btn-icon" onclick="closeModal('settingsModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Default Claude CLI Args</label>
+                    <input type="text" id="defaultClaudeArgs" placeholder="e.g. --auto-approve">
+                    <small>Applied to every new session</small>
+                </div>
+                <div class="form-group">
+                    <label>Shell Path (optional)</label>
+                    <input type="text" id="shellPath" placeholder="Auto-detect">
+                    <small>Leave blank for system default</small>
+                </div>
+                <div class="form-group">
+                    <label>Font Size</label>
+                    <input type="number" id="termFontSize" value="14" min="10" max="24">
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
+                <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Auto-Fix Settings</h3>
+
+                <div class="form-group">
+                    <label>Cooldown (seconds)</label>
+                    <input type="number" id="autoFixCooldown" value="30" min="5" max="300">
+                    <small>Minimum wait between auto-fix attempts per project</small>
+                </div>
+                <div class="form-group">
+                    <label>Fix Prompt Template</label>
+                    <textarea id="autoFixTemplateText" rows="4" placeholder="CRITICAL ERROR: [{label}] {error}">CRITICAL ERROR DETECTED: [{label}] {error}
+
+You MUST: 1) Read the actual code. 2) Fix the root cause completely. 3) Check related files. 4) Verify no new errors introduced. Do NOT skip any step.</textarea>
+                    <small>Use <code>{error}</code> for the error line, <code>{label}</code> for the error type</small>
+                </div>
+                <div class="form-group">
+                    <label>Max Retries (within 2 min)</label>
+                    <input type="number" id="autoFixMaxRetries" value="3" min="1" max="10">
+                    <small>Stops auto-fix after this many attempts to prevent infinite loops</small>
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
+                <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Auto-Restart Settings</h3>
+
+                <div class="form-group">
+                    <label>Max Restarts</label>
+                    <input type="number" id="autoRestartMaxRetriesInput" value="3" min="1" max="20">
+                    <small>Maximum restart attempts within the rate limit window</small>
+                </div>
+                <div class="form-group">
+                    <label>Rate Limit Window (minutes)</label>
+                    <input type="number" id="autoRestartRateWindow" value="5" min="1" max="60">
+                    <small>Time window for counting restart attempts</small>
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
+                <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Daily Health Check</h3>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="healthCheckEnabled">
+                        Enable Daily Health Check
+                    </label>
+                    <small>Automatically run all enabled checks on a schedule</small>
+                </div>
+                <div class="form-group">
+                    <label>Check Interval (hours)</label>
+                    <input type="number" id="healthCheckInterval" value="24" min="1" max="168">
+                    <small>How often to run health checks (default: every 24 hours)</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="healthCheckAutoFix" checked>
+                        Auto-fix issues found during health check
+                    </label>
+                    <small>Automatically attempt to fix errors detected during checks</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Template -->
+    <div class="modal" id="templateModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="templateModalTitle">New Template</h2>
+                <button class="btn-icon" onclick="closeModal('templateModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Template Name</label>
+                    <input type="text" id="tmplName" placeholder="e.g. Code Review">
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="tmplCategory" class="form-select">
+                        <option value="general">General</option>
+                        <option value="testing">Testing</option>
+                        <option value="security">Security</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Prompt Text</label>
+                    <textarea id="tmplText" rows="5" placeholder="Enter the prompt to send to Claude CLI..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('templateModal')">Cancel</button>
+                <button class="btn-primary" onclick="saveTemplate()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Schedule -->
+    <div class="modal" id="scheduleModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="scheduleModalTitle">New Schedule</h2>
+                <button class="btn-icon" onclick="closeModal('scheduleModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Schedule Name</label>
+                    <input type="text" id="schedName" placeholder="e.g. Hourly Build Check">
+                </div>
+                <div class="form-group">
+                    <label>Command / Prompt</label>
+                    <textarea id="schedCommand" rows="3" placeholder="Enter command to run on schedule..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Interval (minutes)</label>
+                    <input type="number" id="schedInterval" value="60" min="1" max="1440">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="schedEnabled" checked>
+                        Enabled
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('scheduleModal')">Cancel</button>
+                <button class="btn-primary" onclick="saveSchedule()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Send to All -->
+    <div class="modal" id="sendAllModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Send to All Projects</h2>
+                <button class="btn-icon" onclick="closeModal('sendAllModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Command</label>
+                    <textarea id="sendAllText" rows="4" placeholder="This command will be sent to all running project terminals..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('sendAllModal')">Cancel</button>
+                <button class="btn-primary" onclick="executeSendToAll()">Send to All</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer-fixed.js"></script>
+</body>
+</html>
