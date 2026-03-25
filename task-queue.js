@@ -4,8 +4,8 @@
 const PASTE_START = '\x1b[200~';
 const PASTE_END   = '\x1b[201~';
 
-function safelog(...args) { try { safelog(...args); } catch (_) {} }
-function safeerr(...args) { try { safeerr(...args); } catch (_) {} }
+function safelog(...args) { try { console.log(...args); } catch (_) {} }
+function safeerr(...args) { try { console.error(...args); } catch (_) {} }
 
 class TaskQueue {
     /**

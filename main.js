@@ -131,12 +131,12 @@ const autoApprovePatterns = [
     'want to execute',
     'ready to execute',
     'Do you approve',
-    'Yes, and',
-    'clear context',
-    'Run /compact',        // Context limit: "Context low · Run /compact to compact & continue"
-    'Please run /login',   // Auth error: "API Error: 401 ... Please run /login"
+    'Yes, and don\'t ask',             // Full menu option text to avoid false positives
+    'Yes, and remember',               // Full menu option text
+    'clear context and continue',      // More specific to avoid matching general "clear context" mentions
+    'Run /compact',                    // Context limit: "Context low · Run /compact to compact & continue"
+    'Please run /login',               // Auth error: "API Error: 401 ... Please run /login"
     'Skip interview and plan immediately',  // Claude CLI /init interview — auto-skip
-    'Type something'                        // Claude CLI /init interview multi-select with Next
 ];
 
 function checkAutoApprove(projectId, rawData) {
@@ -179,14 +179,13 @@ function checkAutoApprove(projectId, rawData) {
 
                 console.log(`[AutoApprove] Sending response (mode: ${autoApproveMode})`);
 
-                if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
+                if (buf.includes('Skip interview and plan immediately')) {
                     // Claude CLI /init interview detected — block task dispatch during interview
                     e.claudeReady = false;
                     console.log('[AutoApprove] Interview detected, claudeReady=false to block dispatch');
 
-                    const isSkipScreen = buf.includes('Skip interview and plan immediately');
-                    const downs = isSkipScreen ? 12 : 10;
-                    const label = isSkipScreen ? 'Skip interview' : 'Next';
+                    const downs = 12;
+                    const label = 'Skip interview';
 
                     console.log(`[AutoApprove] Interview: navigating to "${label}" (${downs} Down arrows)`);
                     const DOWN = '\x1b[B';
@@ -208,8 +207,7 @@ function checkAutoApprove(projectId, rawData) {
                         const ent = ptyPool.get(projectId);
                         if (!ent || !ent.alive) return;
                         const curBuf = autoApproveOutputBuffer.get(projectId) || '';
-                        const stillInInterview = curBuf.includes('Type something') ||
-                                                 curBuf.includes('Skip interview');
+                        const stillInInterview = curBuf.includes('Skip interview and plan immediately');
                         if (!stillInInterview) {
                             ent.claudeReady = true;
                             console.log(`[AutoApprove] Interview done, claudeReady=true for ${projectId}`);
@@ -1032,8 +1030,7 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
             if (!entry.claudeReady && entry.alive) {
                 const clean = stripAnsi(data);
                 const buf = autoApproveOutputBuffer.get(projectId) || '';
-                const hasInterviewPatterns = buf.includes('Type something') ||
-                                              buf.includes('Skip interview') ||
+                const hasInterviewPatterns = buf.includes('Skip interview and plan immediately') ||
                                               buf.includes('[ ]') ||
                                               buf.includes('[✔]');
                 // Claude CLI prompt indicators: "❯" or "How can I help" or "cwd:"
