@@ -191,6 +191,57 @@ body {
     50% { opacity: 0.7; background: rgba(210, 153, 34, 0.4); }
 }
 
+/* AI Chat active state — project has an AI conversation in progress */
+.project-item.ai-chatting {
+    border-color: var(--accent-purple) !important;
+    background: rgba(224, 64, 251, 0.12) !important;
+    box-shadow: 0 0 12px 2px rgba(224, 64, 251, 0.2), inset 0 0 0 1px rgba(224, 64, 251, 0.15);
+    animation: aiChatPulse 1.5s ease-in-out infinite;
+    position: relative;
+}
+.project-item.ai-chatting::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--accent-purple);
+    border-radius: 4px 0 0 4px;
+    box-shadow: 0 0 8px rgba(224, 64, 251, 0.6);
+}
+.project-item.ai-chatting .project-item-name {
+    color: var(--accent-purple) !important;
+    font-weight: 700;
+}
+.project-item.active.ai-chatting {
+    background: linear-gradient(135deg, rgba(224, 64, 251, 0.15), rgba(0, 230, 118, 0.05)) !important;
+    border-color: var(--accent-purple) !important;
+    border-left: 3px solid var(--accent-purple) !important;
+    box-shadow: 0 0 12px 2px rgba(224, 64, 251, 0.2), inset 0 0 0 1px rgba(224, 64, 251, 0.15);
+}
+.project-item.active.ai-chatting .project-item-name {
+    color: var(--accent-purple) !important;
+}
+@keyframes aiChatPulse {
+    0%, 100% { box-shadow: 0 0 8px 1px rgba(224, 64, 251, 0.15), inset 0 0 0 1px rgba(224, 64, 251, 0.1); }
+    50% { box-shadow: 0 0 16px 4px rgba(224, 64, 251, 0.3), inset 0 0 0 1px rgba(224, 64, 251, 0.25); }
+}
+.ai-chat-badge {
+    font-size: 9px;
+    padding: 2px 8px;
+    background: rgba(224, 64, 251, 0.25);
+    border: 1px solid rgba(224, 64, 251, 0.5);
+    border-radius: 10px;
+    color: var(--accent-purple);
+    font-weight: 700;
+    flex-shrink: 0;
+    letter-spacing: 0.3px;
+    animation: aiChatBadgePulse 1s ease-in-out infinite;
+}
+@keyframes aiChatBadgePulse {
+    0%, 100% { opacity: 1; background: rgba(224, 64, 251, 0.25); }
+    50% { opacity: 0.7; background: rgba(224, 64, 251, 0.4); }
+}
+
 .project-item-actions { display: flex; gap: 4px; margin-top: 6px; }
 .project-item-actions button {
     font-size: 11px; padding: 2px 6px; background: transparent;

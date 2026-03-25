@@ -134,9 +134,41 @@ function streamClaude(history, callbacks, options) {
                         callbacks.onToken(text);
                     }
                 } else if (event.type === 'result' && event.result) {
-                    if (!fullText && typeof event.result === 'string') {
-                        fullText = event.result;
-                        callbacks.onToken(fullText);
+                    if (typeof event.result === 'string') {
+                        if (!fullText) {
+                            fullText = event.result;
+                            callbacks.onToken(fullText);
+                        }
+                    } else if (Array.isArray(event.result)) {
+                        // result is array of content blocks
+                        for (const block of event.result) {
+                            if (block.type === 'text' && block.text && !fullText.includes(block.text)) {
+                                fullText += block.text;
+                                callbacks.onToken(block.text);
+                            }
+                        }
+                    } else if (typeof event.result === 'object' && event.result !== null) {
+                        // result is an object — try to extract text
+                        const content = event.result.content || event.result.text;
+                        if (typeof content === 'string' && !fullText) {
+                            fullText = content;
+                            callbacks.onToken(fullText);
+                        } else if (Array.isArray(content)) {
+                            for (const block of content) {
+                                if (block.type === 'text' && block.text && !fullText.includes(block.text)) {
+                                    fullText += block.text;
+                                    callbacks.onToken(block.text);
+                                }
+                            }
+                        }
+                    }
+                } else if (event.type === 'assistant' && event.message && event.message.content) {
+                    // assistant message type — extract text blocks
+                    for (const block of event.message.content) {
+                        if (block.type === 'text' && block.text && !fullText.includes(block.text)) {
+                            fullText += block.text;
+                            callbacks.onToken(block.text);
+                        }
                     }
                 } else if (event.type === 'message' && event.message && event.message.content) {
                     if (!fullText) {
@@ -147,6 +179,12 @@ function streamClaude(history, callbacks, options) {
                             }
                         }
                     }
+                } else if (event.type !== 'content_block_start' && event.type !== 'content_block_stop'
+                    && event.type !== 'message_start' && event.type !== 'message_delta'
+                    && event.type !== 'message_stop' && event.type !== 'ping'
+                    && event.type !== 'system') {
+                    // Debug: log unhandled event types
+                    console.log(`[streamClaude] Unhandled event type: ${event.type}`, JSON.stringify(event).substring(0, 200));
                 }
             } catch (_) {
                 if (trimmed && !trimmed.startsWith('{')) {
@@ -187,6 +225,10 @@ function streamClaude(history, callbacks, options) {
 
         if (fullText) {
             callbacks.onComplete(fullText);
+        } else if (code === 0) {
+            // Code 0 = successful exit but no text extracted — treat as empty response, not error
+            console.log('[streamClaude] CLI exited with code 0 but no text parsed. stderr:', errorText.substring(0, 300));
+            callbacks.onComplete('');
         } else {
             callbacks.onError(new Error(errorText || `claude CLI exited with code ${code}`));
         }

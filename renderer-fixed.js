@@ -69,6 +69,7 @@ const aiBgStreamBuffer = new Map();
 // Track which AI is currently speaking (for center indicator)
 let aiSpeakingNow = null;            // null | 'claude' | 'gemini'
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
+const aiChatActiveMap = new Map();   // projectId -> null | 'claude' | 'gemini' (AI chat in progress)
 
 // AI Recommendation Buttons
 const AI_RECOMMENDATION_BUTTONS = [
@@ -1009,14 +1010,23 @@ function renderProjects() {
             ? '<span class="working-badge" title="Working...">WORKING</span>'
             : '';
 
+        const aiChatWho = aiChatActiveMap.get(project.id);
+        const aiChatBadge = aiChatWho
+            ? `<span class="ai-chat-badge">AI Chat · ${aiChatWho === 'claude' ? 'Claude' : 'Gemini'}</span>`
+            : '';
+
         if (isWorking) {
             item.classList.add('working');
+        }
+        if (aiChatWho) {
+            item.classList.add('ai-chatting');
         }
 
         item.innerHTML = `
             <div class="project-item-header">
                 <div class="project-item-name">${runningDot} ${escapeHtml(project.name)}</div>
                 ${workingBadge}
+                ${aiChatBadge}
                 ${gitBadge}
             </div>
             ${project.description ? `<div class="project-item-desc">${escapeHtml(project.description)}</div>` : ''}
@@ -1060,6 +1070,42 @@ function updateProjectWorkingState(projectId, isWorking) {
     } else {
         item.classList.remove('working');
         const badge = item.querySelector('.working-badge');
+        if (badge) badge.remove();
+    }
+}
+
+// Update sidebar project item AI chat state without full re-render
+function updateProjectAiChatBadge(projectId, who) {
+    const item = document.getElementById(`project-item-${projectId}`);
+    if (!item) return;
+
+    if (who) {
+        if (!item.classList.contains('ai-chatting')) {
+            item.classList.add('ai-chatting');
+        }
+        // Add or update AI chat badge
+        const header = item.querySelector('.project-item-header');
+        if (header) {
+            let badge = header.querySelector('.ai-chat-badge');
+            const label = who === 'claude' ? 'AI Chat · Claude' : 'AI Chat · Gemini';
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'ai-chat-badge';
+                // Insert after working-badge if present, otherwise after project-item-name
+                const workingBadge = header.querySelector('.working-badge');
+                const nameEl = header.querySelector('.project-item-name');
+                const insertAfter = workingBadge || nameEl;
+                if (insertAfter && insertAfter.nextSibling) {
+                    header.insertBefore(badge, insertAfter.nextSibling);
+                } else {
+                    header.appendChild(badge);
+                }
+            }
+            badge.textContent = label;
+        }
+    } else {
+        item.classList.remove('ai-chatting');
+        const badge = item.querySelector('.ai-chat-badge');
         if (badge) badge.remove();
     }
 }
@@ -3085,6 +3131,8 @@ function _bgBufferFinalize(projectId, fullText) {
 }
 
 ipcRenderer.on('ai.geminiToken', (event, { projectId, token }) => {
+    aiChatActiveMap.set(projectId, 'gemini');
+    updateProjectAiChatBadge(projectId, 'gemini');
     if (_isActiveProject(projectId)) {
         aiSpeakingNow = 'gemini';
         showAiSpeakingIndicator('gemini');
@@ -3106,6 +3154,8 @@ ipcRenderer.on('ai.geminiToken', (event, { projectId, token }) => {
 });
 
 ipcRenderer.on('ai.claudeToken', (event, { projectId, token }) => {
+    aiChatActiveMap.set(projectId, 'claude');
+    updateProjectAiChatBadge(projectId, 'claude');
     if (_isActiveProject(projectId)) {
         aiSpeakingNow = 'claude';
         showAiSpeakingIndicator('claude');
@@ -3126,6 +3176,8 @@ ipcRenderer.on('ai.claudeToken', (event, { projectId, token }) => {
 });
 
 ipcRenderer.on('ai.geminiComplete', (event, { projectId, text }) => {
+    aiChatActiveMap.set(projectId, null);
+    updateProjectAiChatBadge(projectId, null);
     if (_isActiveProject(projectId)) {
         aiSpeakingNow = null;
         hideAiSpeakingIndicator();
@@ -3149,6 +3201,8 @@ ipcRenderer.on('ai.geminiComplete', (event, { projectId, text }) => {
 });
 
 ipcRenderer.on('ai.claudeComplete', (event, { projectId, text }) => {
+    aiChatActiveMap.set(projectId, null);
+    updateProjectAiChatBadge(projectId, null);
     if (_isActiveProject(projectId)) {
         aiSpeakingNow = null;
         hideAiSpeakingIndicator();
@@ -3191,6 +3245,8 @@ ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
 });
 
 ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
+    aiChatActiveMap.set(projectId, null);
+    updateProjectAiChatBadge(projectId, null);
     // Always handle completion — flush background buffer if needed
     if (aiBgStreamBuffer.has(projectId)) {
         _bgBufferFinalize(projectId);
@@ -3253,6 +3309,8 @@ ipcRenderer.on('terminal.idle', (event, { projectId }) => {
 });
 
 ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
+    aiChatActiveMap.set(projectId, null);
+    updateProjectAiChatBadge(projectId, null);
     if (_isActiveProject(projectId)) {
         aiSpeakingNow = null;
         hideAiSpeakingIndicator();

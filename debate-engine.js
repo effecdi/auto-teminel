@@ -339,30 +339,50 @@ class DebateEngine {
                     console.log(`[DebateEngine] Step 3/3: Claude 구현 완료`);
                     if (!this.running) break;
 
+                } else if (skipClaude) {
+                    // === Gemini Solo 모드 (Claude 북엔드 포함) ===
+
+                    if (!this.geminiApiKey) {
+                        callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
+                        break;
+                    }
+
+                    // Step 1: Claude 사전 분석
+                    console.log(`[DebateEngine] Gemini-Solo Step 1/3: Claude 사전 분석`);
+                    callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Gemini Solo`);
+                    await this._runClaude(callbacks, {
+                        suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 후 Gemini에게 넘깁니다.',
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
+
+                    // Step 2: Gemini 메인 응답
+                    console.log(`[DebateEngine] Gemini-Solo Step 2/3: Gemini 메인 응답`);
+                    callbacks.onStatusChange(`💬 Gemini 응답중... | Gemini Solo`);
+                    await this._runGemini(callbacks, {
+                        suffix: SOLO_SUFFIX,
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
+
+                    // Step 3: Claude 최종 정리
+                    console.log(`[DebateEngine] Gemini-Solo Step 3/3: Claude 최종 정리`);
+                    callbacks.onStatusChange(`💬 Claude 최종 정리중... | Gemini Solo`);
+                    await this._runClaude(callbacks, {
+                        suffix: 'Gemini 결과를 종합하여 최종 코드를 정리하고 구체적인 실행 가능한 코드를 제시하세요.',
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
+
                 } else {
-                    // === Solo 모드 ===
+                    // === Claude Solo 모드 ===
 
-                    if (!skipGemini) {
-                        if (!this.geminiApiKey) {
-                            callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
-                            break;
-                        }
-                        callbacks.onStatusChange(`💬 Gemini 응답중... | Round ${round}/${maxRounds}`);
-                        await this._runGemini(callbacks, {
-                            suffix: SOLO_SUFFIX,
-                            projectContext, projectPath: this.projectPath,
-                        });
-                        if (!this.running) break;
-                    }
-
-                    if (!skipClaude) {
-                        callbacks.onStatusChange(`💬 Claude 응답중... | Round ${round}/${maxRounds}`);
-                        await this._runClaude(callbacks, {
-                            suffix: SOLO_SUFFIX,
-                            projectContext, projectPath: this.projectPath,
-                        });
-                        if (!this.running) break;
-                    }
+                    callbacks.onStatusChange(`💬 Claude 응답중... | Round ${round}/${maxRounds}`);
+                    await this._runClaude(callbacks, {
+                        suffix: SOLO_SUFFIX,
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
                 }
             }
         } finally {
