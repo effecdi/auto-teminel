@@ -6,6 +6,315 @@
     <title>Claude CLI Terminal</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="node_modules/xterm/css/xterm.css">
+    <style>
+        /* ===== AI Chat Styles ===== */
+
+        .toolbar-btn-ai { color: #58a6ff; font-weight: 600; }
+        .toolbar-btn-ai.active { background: rgba(88,166,255,0.15); color: #79c0ff; border-color: #58a6ff; }
+        .toolbar-separator { color: var(--text-muted); margin: 0 4px; user-select: none; font-size: 12px; }
+
+        #ai-chat-container {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
+        .ai-chat-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            flex-wrap: wrap;
+        }
+
+        .ai-select {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 11px;
+            cursor: pointer;
+            outline: none;
+        }
+        .ai-select:focus { border-color: var(--accent); }
+
+        .ai-round-info {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .ai-stop-btn {
+            background: #da3633;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 3px 10px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .ai-stop-btn:hover { background: #f85149; }
+
+        .ai-chat-messages {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .ai-chat-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .ai-chat-placeholder h2 { font-size: 18px; margin: 8px 0 4px; color: var(--text-secondary); }
+        .ai-chat-placeholder p { font-size: 12px; }
+        .ai-chat-placeholder .placeholder-icon { font-size: 36px; }
+        .ai-chat-placeholder .placeholder-hint { font-size: 11px; margin-top: 8px; color: var(--text-muted); }
+
+        /* Message bubbles */
+        .ai-msg {
+            max-width: 90%;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .ai-msg-user {
+            align-self: flex-end;
+            background: #1f3a5f;
+            color: #c9d1d9;
+            border-bottom-right-radius: 2px;
+        }
+        .ai-msg-gemini {
+            align-self: flex-start;
+            background: #2d1b4e;
+            color: #d2b3ff;
+            border-bottom-left-radius: 2px;
+        }
+        .ai-msg-claude {
+            align-self: flex-start;
+            background: #0d2d3d;
+            color: #7ee8fa;
+            border-bottom-left-radius: 2px;
+        }
+        .ai-msg-error {
+            align-self: center;
+            background: #3d1418;
+            color: #f85149;
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+        .ai-msg-system {
+            align-self: center;
+            color: var(--text-muted);
+            font-size: 11px;
+            padding: 4px 8px;
+        }
+
+        .ai-msg-label {
+            font-size: 10px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+        .ai-msg-gemini .ai-msg-label { color: #a371f7; }
+        .ai-msg-claude .ai-msg-label { color: #58a6ff; }
+
+        /* Streaming cursor */
+        .ai-msg-streaming::after {
+            content: '▋';
+            animation: ai-blink 0.8s infinite;
+        }
+        @keyframes ai-blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Code blocks inside AI messages */
+        .ai-msg pre {
+            background: #161b22;
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin: 6px 0;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .ai-msg code {
+            font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        .ai-msg p code {
+            background: rgba(110,118,129,0.2);
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .ai-msg h1, .ai-msg h2, .ai-msg h3 {
+            font-size: 14px;
+            margin: 8px 0 4px;
+            color: inherit;
+        }
+        .ai-msg strong { font-weight: 700; }
+        .ai-msg ul, .ai-msg ol { padding-left: 20px; margin: 4px 0; }
+
+        .form-select {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 13px;
+            width: 100%;
+        }
+
+        /* ===== Unified Controls & Route Indicator ===== */
+        .unified-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .route-indicator {
+            font-size: 10px;
+            color: var(--text-muted);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .route-indicator .route-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .route-badge.claude-solo { background: rgba(0,200,83,0.15); color: #00c853; }
+        .route-badge.gemini-solo { background: rgba(66,133,244,0.15); color: #4285f4; }
+        .route-badge.pipeline { background: rgba(163,113,247,0.15); color: #a371f7; }
+
+        /* ===== Timeline Panel ===== */
+        .timeline-panel {
+            border-bottom: 1px solid var(--border-primary);
+            background: var(--bg-primary);
+            max-height: 40vh;
+            display: flex;
+            flex-direction: column;
+            transition: max-height 0.3s ease;
+        }
+        .timeline-panel.collapsed {
+            max-height: 32px;
+            overflow: hidden;
+        }
+        .timeline-panel.collapsed .timeline-entries {
+            display: none;
+        }
+        .timeline-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 10px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            min-height: 28px;
+        }
+        .timeline-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            flex: 1;
+        }
+        .timeline-toggle-btn, .timeline-clear-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 11px;
+            padding: 2px 4px;
+        }
+        .timeline-toggle-btn:hover, .timeline-clear-btn:hover {
+            color: var(--text-primary);
+        }
+        .timeline-entries {
+            overflow-y: auto;
+            flex: 1;
+            padding: 4px 0;
+        }
+        .timeline-entry {
+            padding: 6px 12px;
+            border-left: 3px solid transparent;
+            font-size: 12px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .timeline-entry.user {
+            background: #1a1a2e;
+            border-left-color: #666;
+        }
+        .timeline-entry.gemini-design {
+            border-left-color: #4285f4;
+        }
+        .timeline-entry.claude-execution {
+            border-left-color: #00c853;
+        }
+        .timeline-entry.route-info {
+            font-size: 10px;
+            color: var(--text-muted);
+            padding: 3px 12px;
+            border-left-color: transparent;
+        }
+        .timeline-entry.error {
+            border-left-color: #ff4444;
+            color: #f85149;
+        }
+        .timeline-entry-label {
+            font-size: 10px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            opacity: 0.7;
+        }
+        .timeline-entry.gemini-design .timeline-entry-label { color: #a371f7; }
+        .timeline-entry.claude-execution .timeline-entry-label { color: #3fb950; }
+        .timeline-entry.user .timeline-entry-label { color: #8b949e; }
+
+        /* Streaming cursor in timeline */
+        .timeline-entry.streaming .timeline-entry-body::after {
+            content: '▋';
+            animation: ai-blink 0.8s infinite;
+        }
+
+        /* Code blocks in timeline */
+        .timeline-entry pre {
+            background: #161b22;
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 6px 8px;
+            margin: 4px 0;
+            overflow-x: auto;
+            font-size: 11px;
+        }
+        .timeline-entry code {
+            font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+            font-size: 11px;
+        }
+    </style>
 </head>
 <body>
     <!-- Titlebar -->
@@ -38,10 +347,24 @@
                     <span class="project-name">Select a project to start Claude CLI</span>
                 </div>
                 <div class="terminal-toolbar">
-                    <button class="toolbar-btn" onclick="restartTerminal()" title="Kill & restart Claude CLI for current project">🔄 Restart</button>
-                    <button class="toolbar-btn" onclick="killTerminal()" title="Kill terminal process">⏹ Kill</button>
-                    <button class="toolbar-btn" onclick="clearTerminal()" title="Clear terminal screen">🧹 Clear</button>
-                    <button class="toolbar-btn toolbar-btn-image" onclick="selectImageFile()" title="Attach files (images, video, audio, docs)">📎 Attach</button>
+                    <div class="unified-controls">
+                        <select class="ai-select" id="routeMode" title="AI routing mode">
+                            <option value="auto">Auto</option>
+                            <option value="claude-solo">Claude Solo</option>
+                            <option value="gemini-solo">Gemini Solo</option>
+                            <option value="pipeline">Pipeline (Gemini→Claude)</option>
+                        </select>
+                        <span class="route-indicator" id="routeIndicator"></span>
+                    </div>
+                    <span class="toolbar-separator">|</span>
+                    <button class="toolbar-btn toolbar-btn-ai" id="aiChatToggleBtn" onclick="toggleAiChat()" title="Toggle AI Chat (Claude + Gemini)">🤖 AI Chat</button>
+                    <span class="toolbar-separator" id="terminalToolbarSep">|</span>
+                    <span id="terminalOnlyBtns">
+                        <button class="toolbar-btn" onclick="restartTerminal()" title="Kill & restart Claude CLI for current project">🔄 Restart</button>
+                        <button class="toolbar-btn" onclick="killTerminal()" title="Kill terminal process">⏹ Kill</button>
+                        <button class="toolbar-btn" onclick="clearTerminal()" title="Clear terminal screen">🧹 Clear</button>
+                        <button class="toolbar-btn toolbar-btn-image" onclick="selectImageFile()" title="Attach files (images, video, audio, docs)">📎 Attach</button>
+                    </span>
                 </div>
             </div>
 
@@ -65,6 +388,17 @@
                 </div>
             </div>
 
+            <!-- Timeline Panel (AI Pipeline output — always visible) -->
+            <div id="timeline-panel" class="timeline-panel collapsed">
+                <div class="timeline-header">
+                    <span class="timeline-title">AI Pipeline</span>
+                    <span class="ai-stop-btn" id="pipelineStopBtn" onclick="stopPipeline()" style="display:none;">⏹ Stop</span>
+                    <button class="timeline-toggle-btn" id="timelineToggleBtn" onclick="toggleTimeline()" title="Toggle timeline">▶</button>
+                    <button class="timeline-clear-btn" onclick="clearTimeline()" title="Clear timeline">✕</button>
+                </div>
+                <div class="timeline-entries" id="timelineEntries"></div>
+            </div>
+
             <!-- Terminal Container -->
             <div id="terminal-container">
                 <div class="terminal-placeholder" id="terminalPlaceholder">
@@ -77,11 +411,47 @@
                 </div>
             </div>
 
+            <!-- AI Chat Container (toggled with terminal) -->
+            <div id="ai-chat-container" style="display:none;">
+                <div class="ai-chat-controls">
+                    <select class="ai-select" id="aiDebateMode" title="Conversation mode">
+                        <option value="collab">Collab (협업)</option>
+                        <option value="debate">Debate (토론)</option>
+                        <option value="review">Review (리뷰)</option>
+                    </select>
+                    <select class="ai-select" id="aiAiMode" title="AI participants">
+                        <option value="dual">Dual (Claude+Gemini)</option>
+                        <option value="claude-solo">Claude Solo</option>
+                        <option value="gemini-solo">Gemini Solo</option>
+                    </select>
+                    <select class="ai-select" id="aiOperationType" title="Operation type">
+                        <option value="">No project context</option>
+                        <option value="development">💻 개발</option>
+                        <option value="modification">🔧 수정</option>
+                        <option value="verification">✅ 검증</option>
+                        <option value="enhancement">🚀 고도화</option>
+                        <option value="design-change">🎨 디자인변경</option>
+                        <option value="security-audit">🔒 보안검증</option>
+                        <option value="automation">⚙️ 자동화</option>
+                    </select>
+                    <div class="ai-round-info" id="aiRoundInfo"></div>
+                    <button class="ai-stop-btn" id="aiStopBtn" onclick="stopAiChat()" style="display:none;">⏹ Stop</button>
+                </div>
+                <div class="ai-chat-messages" id="aiChatMessages">
+                    <div class="ai-chat-placeholder">
+                        <div class="placeholder-icon">🤖</div>
+                        <h2>AI Chat</h2>
+                        <p>Claude (개발자) + Gemini (디자이너) 듀얼 AI 채팅</p>
+                        <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Prompt Area (below terminal) -->
             <div class="prompt-area">
                 <div class="prompt-row">
-                    <textarea id="taskInput" placeholder="Write your request for Claude... (Enter to enqueue)" rows="1"></textarea>
-                    <button class="task-send-btn" onclick="sendTask()">Enqueue</button>
+                    <textarea id="taskInput" placeholder="작업 요청... (Enter to send — Auto routing)" rows="1"></textarea>
+                    <button class="task-send-btn" id="taskSendBtn" onclick="aiChatMode ? sendAiMessage() : sendTask()">Send</button>
                 </div>
                 <div class="prompt-controls">
                     <button class="queue-ctrl-btn" id="queuePauseBtn" onclick="toggleQueuePause()">⏸ Pause</button>
@@ -252,6 +622,59 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <!-- Modal: Duplicate Project -->
+    <div class="modal" id="duplicateModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Duplicate Project</h2>
+                <button class="btn-icon" onclick="closeModal('duplicateModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Destination</label>
+                    <div class="info-value mono" id="dupParentPath" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">—</div>
+                </div>
+                <div class="form-group">
+                    <label>New Folder Name</label>
+                    <input type="text" id="dupFolderName" placeholder="my-project-copy">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('duplicateModal')">Cancel</button>
+                <button class="btn-primary" onclick="executeDuplicate()">Duplicate</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Project -->
+    <div class="modal" id="editProjectModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Project</h2>
+                <button class="btn-icon" onclick="closeModal('editProjectModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Project Name</label>
+                    <input type="text" id="editProjectName" placeholder="My Awesome App">
+                </div>
+                <div class="form-group">
+                    <label>Description (optional)</label>
+                    <textarea id="editProjectDesc" placeholder="Project description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Claude CLI Args (optional)</label>
+                    <input type="text" id="editProjectClaudeArgs" placeholder="e.g. --auto-approve">
+                    <small>Additional arguments passed to <code>claude</code></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('editProjectModal')">Cancel</button>
+                <button class="btn-primary" onclick="saveEditProject()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Add Project -->
     <div class="modal" id="addProjectModal">
         <div class="modal-content">
@@ -309,6 +732,43 @@
                 <div class="form-group">
                     <label>Font Size</label>
                     <input type="number" id="termFontSize" value="14" min="10" max="24">
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
+                <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">AI Chat Settings</h3>
+
+                <div class="form-group">
+                    <label>Gemini API Key</label>
+                    <input type="password" id="geminiApiKey" placeholder="AIza...">
+                    <small>Get from <a href="https://aistudio.google.com/apikey" style="color:var(--accent);" target="_blank">Google AI Studio</a>. Claude uses CLI OAuth (no key needed).</small>
+                </div>
+                <div class="form-group">
+                    <label>Default Mode</label>
+                    <select id="aiDefaultMode" class="form-select">
+                        <option value="collab">Collab (협업)</option>
+                        <option value="debate">Debate (토론)</option>
+                        <option value="review">Review (리뷰)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Default AI Mode</label>
+                    <select id="aiDefaultAiMode" class="form-select">
+                        <option value="dual">Dual (Claude+Gemini)</option>
+                        <option value="claude-solo">Claude Solo</option>
+                        <option value="gemini-solo">Gemini Solo</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Max Rounds (Dual mode)</label>
+                    <input type="number" id="aiMaxRounds" value="1" min="1" max="10">
+                    <small>Number of conversation rounds between Claude and Gemini (1 recommended to save tokens)</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="aiIncludeSource">
+                        Include Source Code in Context
+                    </label>
+                    <small>OFF = structure only (saves tokens). ON = sends full source code to AI (up to 300KB, heavy token usage).</small>
                 </div>
 
                 <hr style="border-color: var(--border-primary); margin: 16px 0;">

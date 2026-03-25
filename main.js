@@ -1,6 +1,6 @@
 // Claude CLI Terminal - Electron Main Process (v5 - Automation)
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeImage, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -9,6 +9,13 @@ const Store = require('electron-store');
 const pty = require('node-pty');
 const TaskQueue = require('./task-queue');
 const { startRemoteServer, stopRemoteServer, broadcastOutput, broadcastEvent, broadcastQueueUpdate } = require('./remote-server');
+const { DebateEngine, MODES } = require('./debate-engine');
+const { buildProjectContext, getOperationsList } = require('./project-context');
+const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
+
+// Prevent EPIPE crashes when stdout/stderr pipes are closed during shutdown
+process.stdout?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+process.stderr?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
 
 const store = new Store();
 let mainWindow;
@@ -55,17 +62,21 @@ const taskQueue = new TaskQueue({
 const TASK_PERSIST_KEY = 'pendingTaskQueue';
 const TASK_PERSIST_INTERVAL = 10000; // Save every 10 seconds
 
+function safelog(...args) {
+    try { console.log(...args); } catch (_) {}
+}
+
 function persistTaskQueue() {
     try {
         const pending = taskQueue.getPendingTasks();
         if (pending.length > 0) {
             store.set(TASK_PERSIST_KEY, pending);
-            console.log(`[Main] Persisted ${pending.length} pending task(s)`);
+            safelog(`[Main] Persisted ${pending.length} pending task(s)`);
         } else {
             store.delete(TASK_PERSIST_KEY);
         }
     } catch (e) {
-        console.error('[Main] Failed to persist task queue:', e.message);
+        try { console.error('[Main] Failed to persist task queue:', e.message); } catch (_) {}
     }
 }
 
@@ -123,7 +134,9 @@ const autoApprovePatterns = [
     'Yes, and',
     'clear context',
     'Run /compact',        // Context limit: "Context low · Run /compact to compact & continue"
-    'Please run /login'    // Auth error: "API Error: 401 ... Please run /login"
+    'Please run /login',   // Auth error: "API Error: 401 ... Please run /login"
+    'Skip interview and plan immediately',  // Claude CLI /init interview — auto-skip
+    'Type something'                        // Claude CLI /init interview multi-select with Next
 ];
 
 function checkAutoApprove(projectId, rawData) {
@@ -166,7 +179,47 @@ function checkAutoApprove(projectId, rawData) {
 
                 console.log(`[AutoApprove] Sending response (mode: ${autoApproveMode})`);
 
-                if (buf.includes('Run /compact')) {
+                if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
+                    // Claude CLI /init interview detected — block task dispatch during interview
+                    e.claudeReady = false;
+                    console.log('[AutoApprove] Interview detected, claudeReady=false to block dispatch');
+
+                    const isSkipScreen = buf.includes('Skip interview and plan immediately');
+                    const downs = isSkipScreen ? 12 : 10;
+                    const label = isSkipScreen ? 'Skip interview' : 'Next';
+
+                    console.log(`[AutoApprove] Interview: navigating to "${label}" (${downs} Down arrows)`);
+                    const DOWN = '\x1b[B';
+                    for (let i = 0; i < downs; i++) {
+                        setTimeout(() => {
+                            if (e.alive && e.process) e.process.write(DOWN);
+                        }, i * 60);
+                    }
+                    setTimeout(() => {
+                        if (e.alive && e.process) {
+                            e.process.write('\r');
+                            console.log(`[AutoApprove] Sent: Enter on ${label}`);
+                        }
+                    }, downs * 60 + 300);
+
+                    // After interview navigation, check if interview is done
+                    // If buffer no longer has interview patterns → mark ready
+                    setTimeout(() => {
+                        const ent = ptyPool.get(projectId);
+                        if (!ent || !ent.alive) return;
+                        const curBuf = autoApproveOutputBuffer.get(projectId) || '';
+                        const stillInInterview = curBuf.includes('Type something') ||
+                                                 curBuf.includes('Skip interview');
+                        if (!stillInInterview) {
+                            ent.claudeReady = true;
+                            console.log(`[AutoApprove] Interview done, claudeReady=true for ${projectId}`);
+                            taskQueue.process();
+                        } else {
+                            console.log(`[AutoApprove] Still in interview for ${projectId}, waiting...`);
+                            // Auto-approve will re-trigger on next interview screen
+                        }
+                    }, 5000);
+                } else if (buf.includes('Run /compact')) {
                     // Context limit warning — send /compact command
                     console.log('[AutoApprove] Context low detected, sending /compact');
                     writeToPty(e, '/compact');
@@ -739,7 +792,50 @@ function createWindow() {
     });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    // macOS에서 Cmd+C/V/X/A 등 기본 단축키가 textarea/input에서 동작하려면
+    // Edit 메뉴가 반드시 있어야 함
+    const template = [
+        ...(process.platform === 'darwin' ? [{
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        }] : []),
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                { role: 'selectAll' }
+            ]
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'forceReload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                { role: 'zoomIn' },
+                { role: 'zoomOut' },
+                { role: 'resetZoom' }
+            ]
+        }
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    createWindow();
+});
 
 app.on('window-all-closed', () => {
     persistTaskQueue();
@@ -930,6 +1026,29 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
             checkAutoApprove(projectId, data);
             // Broadcast to remote WS clients
             broadcastOutput(projectId, data);
+
+            // Output-based claudeReady detection:
+            // When Claude CLI shows its prompt (❯) and we're NOT in an interview, mark ready
+            if (!entry.claudeReady && entry.alive) {
+                const clean = stripAnsi(data);
+                const buf = autoApproveOutputBuffer.get(projectId) || '';
+                const hasInterviewPatterns = buf.includes('Type something') ||
+                                              buf.includes('Skip interview') ||
+                                              buf.includes('[ ]') ||
+                                              buf.includes('[✔]');
+                // Claude CLI prompt indicators: "❯" or "How can I help" or "cwd:"
+                const hasReadyIndicator = clean.includes('❯') || clean.includes('How can I help') ||
+                                           clean.includes('cwd:') || buf.includes('How can I help');
+                if (hasReadyIndicator && !hasInterviewPatterns) {
+                    entry.claudeReady = true;
+                    if (entry._readyFallback) {
+                        clearTimeout(entry._readyFallback);
+                        entry._readyFallback = null;
+                    }
+                    console.log(`[Main] Claude CLI ready (output-detected) for ${projectId}`);
+                    taskQueue.process();
+                }
+            }
         });
         disposables.push(onDataDisposable);
 
@@ -963,13 +1082,15 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
             if (entry.alive && entry.process) {
                 console.log(`[Main] Auto-executing for ${projectId}: ${claudeCmd}`);
                 entry.process.write(claudeCmd + '\r');
-                // Mark Claude CLI as ready after startup delay
-                setTimeout(() => {
-                    entry.claudeReady = true;
-                    console.log(`[Main] Claude CLI marked ready for ${projectId}`);
-                    // Kick the task queue in case tasks are waiting
-                    taskQueue.process();
-                }, 3000);
+                // claudeReady will be set by output-based detection (see below)
+                // Fallback timer: if detection doesn't trigger within 10s, force ready
+                entry._readyFallback = setTimeout(() => {
+                    if (!entry.claudeReady && entry.alive) {
+                        entry.claudeReady = true;
+                        console.log(`[Main] Claude CLI ready (fallback timer) for ${projectId}`);
+                        taskQueue.process();
+                    }
+                }, 10000);
             }
         }, 600);
 
@@ -1671,6 +1792,18 @@ ipcMain.handle('add-project', async (event, projectData) => {
 
 ipcMain.handle('get-projects', () => store.get('projects', []));
 
+ipcMain.handle('update-project', (event, { projectId, updates }) => {
+    const projects = store.get('projects', []);
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) return { success: false, error: 'Project not found' };
+    const allowed = ['name', 'description', 'claudeArgs'];
+    for (const key of allowed) {
+        if (updates[key] !== undefined) projects[idx][key] = updates[key];
+    }
+    store.set('projects', projects);
+    return { success: true, project: projects[idx] };
+});
+
 ipcMain.handle('delete-project', (event, projectId) => {
     destroyPty(projectId);
     const projects = store.get('projects', []);
@@ -1682,6 +1815,75 @@ ipcMain.handle('delete-project', (event, projectId) => {
     store.set('lastPromptPerProject', lastPrompts);
 
     return { success: true };
+});
+
+// ===================================================================
+//  Project Duplicate — copy project folder to new location
+// ===================================================================
+
+ipcMain.handle('duplicate-project', async (event, { sourceProjectId, destPath }) => {
+    try {
+        const projects = store.get('projects', []);
+        const source = projects.find(p => p.id === sourceProjectId);
+        if (!source) return { success: false, error: 'Source project not found' };
+
+        const sourcePath = source.path;
+        if (!fs.existsSync(sourcePath)) return { success: false, error: 'Source folder does not exist' };
+        if (fs.existsSync(destPath)) return { success: false, error: 'Destination folder already exists' };
+
+        // Notify renderer: copy started
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('duplicate.progress', { status: 'copying' });
+        }
+
+        // Copy directory recursively, skipping node_modules / .git / heavy cache dirs
+        const SKIP_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.turbo', '.output']);
+
+        function copyDirSync(src, dest) {
+            fs.mkdirSync(dest, { recursive: true });
+            const entries = fs.readdirSync(src, { withFileTypes: true });
+            for (const entry of entries) {
+                const srcChild = path.join(src, entry.name);
+                const destChild = path.join(dest, entry.name);
+                if (entry.isDirectory()) {
+                    if (SKIP_DIRS.has(entry.name)) continue;
+                    copyDirSync(srcChild, destChild);
+                } else {
+                    fs.copyFileSync(srcChild, destChild);
+                }
+            }
+        }
+
+        copyDirSync(sourcePath, destPath);
+
+        // Register as new project
+        let gitInfo = { hasGit: false, remote: null, branch: null };
+        // .git was skipped, so init a fresh one if original had git
+        if (source.hasGit) {
+            try {
+                execSync('git init', { cwd: destPath, encoding: 'utf-8' });
+                gitInfo.hasGit = true;
+                gitInfo.branch = 'main';
+            } catch (_) {}
+        }
+
+        const folderName = path.basename(destPath);
+        const newProject = {
+            id: Date.now().toString(),
+            name: folderName,
+            path: destPath,
+            description: source.description || '',
+            claudeArgs: source.claudeArgs || '',
+            ...gitInfo,
+            createdAt: new Date().toISOString()
+        };
+        projects.push(newProject);
+        store.set('projects', projects);
+
+        return { success: true, project: newProject };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
 });
 
 // ===================================================================
@@ -2092,6 +2294,305 @@ ipcMain.handle('queue.clear', () => {
 ipcMain.handle('queue.kick', () => {
     taskQueue.process();
     return { success: true };
+});
+
+// ===================================================================
+//  AI Chat — Dual AI (Claude + Gemini) debate/collab engine
+// ===================================================================
+
+const debateEngines = new Map(); // projectId -> DebateEngine
+
+function getOrCreateEngine(projectId) {
+    if (!debateEngines.has(projectId)) {
+        debateEngines.set(projectId, new DebateEngine());
+    }
+    return debateEngines.get(projectId);
+}
+
+function makeDebateCallbacks(projectId) {
+    return {
+        onGeminiToken: (token) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.geminiToken', { projectId, token });
+            }
+        },
+        onGeminiComplete: (text) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.geminiComplete', { projectId, text });
+            }
+        },
+        onClaudeToken: (token) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.claudeToken', { projectId, token });
+            }
+        },
+        onClaudeComplete: (text) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.claudeComplete', { projectId, text });
+            }
+        },
+        onRoundStart: (round, maxRounds) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.roundStart', { projectId, round, maxRounds });
+            }
+        },
+        onDebateComplete: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.debateComplete', { projectId });
+            }
+        },
+        onError: (error, source) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.error', { projectId, message: error.message, source });
+            }
+        },
+        onStatusChange: (status) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.statusChange', { projectId, status });
+            }
+        },
+    };
+}
+
+ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operationType, projectPath, projectName }) => {
+    const engine = getOrCreateEngine(projectId);
+    if (engine.isRunning) return { success: false, error: 'Already running' };
+
+    const geminiApiKey = store.get('geminiApiKey', '');
+    const maxRounds = store.get('aiMaxRounds', 1);
+    const includeSource = store.get('aiIncludeSource', false);
+
+    let projectContext = null;
+    if (projectPath && operationType) {
+        try {
+            projectContext = buildProjectContext(projectPath, projectName || projectId, operationType, { includeSource });
+        } catch (e) {
+            console.error('[AI] Failed to build project context:', e.message);
+        }
+    }
+
+    const callbacks = makeDebateCallbacks(projectId);
+    engine.start(task, callbacks, {
+        mode: mode || 'collab',
+        aiMode: aiMode || 'dual',
+        maxRounds,
+        geminiApiKey,
+        projectContext,
+    });
+
+    return { success: true, sessionId: engine.sessionId };
+});
+
+ipcMain.handle('ai.continue', async (event, { projectId, message }) => {
+    const engine = getOrCreateEngine(projectId);
+    if (engine.isRunning) return { success: false, error: 'Already running' };
+
+    const callbacks = makeDebateCallbacks(projectId);
+    engine.continue(message, callbacks);
+    return { success: true };
+});
+
+ipcMain.handle('ai.stop', (event, { projectId }) => {
+    const engine = debateEngines.get(projectId);
+    if (engine) engine.stop();
+    return { success: true };
+});
+
+ipcMain.handle('ai.getState', (event, { projectId }) => {
+    const engine = debateEngines.get(projectId);
+    if (!engine) return { running: false, historyLength: 0 };
+    return engine.getState();
+});
+
+ipcMain.handle('ai.getHistory', (event, { projectId }) => {
+    const engine = debateEngines.get(projectId);
+    if (!engine) return [];
+    return engine.getHistory();
+});
+
+ipcMain.handle('ai.getModes', () => {
+    const modes = {};
+    for (const [key, val] of Object.entries(MODES)) {
+        modes[key] = { name: val.name, description: val.description };
+    }
+    return modes;
+});
+
+ipcMain.handle('ai.getOperations', () => {
+    return getOperationsList();
+});
+
+ipcMain.handle('ai.getSettings', () => {
+    return {
+        geminiApiKey: store.get('geminiApiKey', ''),
+        aiDefaultMode: store.get('aiDefaultMode', 'collab'),
+        aiDefaultAiMode: store.get('aiDefaultAiMode', 'dual'),
+        aiMaxRounds: store.get('aiMaxRounds', 1),
+        aiIncludeSource: store.get('aiIncludeSource', false),
+    };
+});
+
+ipcMain.handle('ai.setSettings', (event, settings) => {
+    if (settings.geminiApiKey !== undefined) store.set('geminiApiKey', settings.geminiApiKey);
+    if (settings.aiDefaultMode !== undefined) store.set('aiDefaultMode', settings.aiDefaultMode);
+    if (settings.aiDefaultAiMode !== undefined) store.set('aiDefaultAiMode', settings.aiDefaultAiMode);
+    if (settings.aiMaxRounds !== undefined) store.set('aiMaxRounds', settings.aiMaxRounds);
+    if (settings.aiIncludeSource !== undefined) store.set('aiIncludeSource', settings.aiIncludeSource);
+    return { success: true };
+});
+
+// ===================================================================
+//  Pipeline — Codex-style AI Orchestration (Gemini design → Claude execute)
+// ===================================================================
+
+function makePipelineCallbacks(projectId) {
+    return {
+        onGeminiToken: (token) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('pipeline.geminiToken', { projectId, token });
+            }
+        },
+        onGeminiComplete: (text) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('pipeline.geminiComplete', { projectId, text });
+            }
+        },
+        onClaudeToken: () => {},
+        onClaudeComplete: () => {},
+        onPipelineReady: (geminiDesign) => {
+            // Gemini design complete → build execution prompt → enqueue to TaskQueue
+            const engine = debateEngines.get(projectId);
+            const originalTask = engine ? engine.getTask() : '';
+            const executionPrompt = buildExecutionPrompt(originalTask, geminiDesign);
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('pipeline.executionStarted', { projectId });
+            }
+
+            // Find project name for the task queue
+            const projects = store.get('projects', []);
+            const project = projects.find(p => p.id === projectId);
+            const projectName = project ? project.name : projectId;
+
+            taskQueue.enqueue(projectId, projectName, executionPrompt);
+            console.log(`[Pipeline] Gemini design complete → Claude execution queued for ${projectId}`);
+        },
+        onRoundStart: (round, maxRounds) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.roundStart', { projectId, round, maxRounds });
+            }
+        },
+        onDebateComplete: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.debateComplete', { projectId });
+            }
+        },
+        onError: (error, source) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('pipeline.error', { projectId, message: error.message, source });
+            }
+        },
+        onStatusChange: (status) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.statusChange', { projectId, status });
+            }
+        },
+    };
+}
+
+ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) => {
+    let mode = routeMode;
+    let routeInfo = null;
+
+    // Auto-classify if mode is 'auto'
+    if (mode === 'auto') {
+        routeInfo = classifyTask(text);
+        mode = routeInfo.mode;
+    } else {
+        routeInfo = { mode, confidence: 1.0, reason: '수동 선택' };
+    }
+
+    // Notify renderer of routing result
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pipeline.routed', { projectId, ...routeInfo });
+    }
+
+    console.log(`[Pipeline] Route: ${mode} (confidence: ${routeInfo.confidence}, reason: ${routeInfo.reason})`);
+
+    if (mode === ROUTE_MODES.CLAUDE_SOLO) {
+        // Direct terminal execution via TaskQueue
+        const projects = store.get('projects', []);
+        const project = projects.find(p => p.id === projectId);
+        const projectName = project ? project.name : projectId;
+        taskQueue.enqueue(projectId, projectName, text);
+        return { success: true, mode, routeInfo };
+    }
+
+    if (mode === ROUTE_MODES.GEMINI_SOLO) {
+        // Gemini-only via debate engine
+        const engine = getOrCreateEngine(projectId);
+        if (engine.isRunning) return { success: false, error: 'Already running' };
+
+        const geminiApiKey = store.get('geminiApiKey', '');
+        const includeSource = store.get('aiIncludeSource', false);
+        const projects = store.get('projects', []);
+        const project = projects.find(p => p.id === projectId);
+
+        let projectContext = null;
+        if (project && project.path) {
+            try {
+                projectContext = buildProjectContext(project.path, project.name || projectId, 'design-change', { includeSource });
+            } catch (e) {
+                console.error('[Pipeline] Failed to build project context:', e.message);
+            }
+        }
+
+        const callbacks = makeDebateCallbacks(projectId);
+        engine.start(text, callbacks, {
+            mode: 'collab',
+            aiMode: 'gemini-solo',
+            maxRounds: 1,
+            geminiApiKey,
+            projectContext,
+        });
+        return { success: true, mode, routeInfo };
+    }
+
+    if (mode === ROUTE_MODES.PIPELINE) {
+        // Pipeline: Gemini design → Claude execute
+        const engine = getOrCreateEngine(projectId);
+        if (engine.isRunning) return { success: false, error: 'Already running' };
+
+        const geminiApiKey = store.get('geminiApiKey', '');
+        const includeSource = store.get('aiIncludeSource', false);
+        const projects = store.get('projects', []);
+        const project = projects.find(p => p.id === projectId);
+
+        let projectContext = null;
+        if (project && project.path) {
+            try {
+                projectContext = buildProjectContext(project.path, project.name || projectId, 'development', { includeSource });
+            } catch (e) {
+                console.error('[Pipeline] Failed to build project context:', e.message);
+            }
+        }
+
+        const callbacks = makePipelineCallbacks(projectId);
+        engine.start(text, callbacks, {
+            mode: 'pipeline',
+            aiMode: 'pipeline',
+            maxRounds: 1,
+            geminiApiKey,
+            projectContext,
+        });
+        return { success: true, mode, routeInfo };
+    }
+
+    return { success: false, error: 'Unknown mode: ' + mode };
+});
+
+ipcMain.handle('pipeline.classify', (event, { text }) => {
+    return classifyTask(text);
 });
 
 // Load schedules on startup (after a short delay to let window load)

@@ -55,6 +55,12 @@ let autoVerifyEnabled = false;
 // Auto-Restart resend prompt state
 let autoRestartResendPrompt = true;
 
+// AI Chat state
+let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
+let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}]
+let aiChatStreaming = null;          // { role, div } — currently streaming message
+let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
+
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
 
@@ -144,6 +150,7 @@ async function init() {
         const savedHistory = await ipcRenderer.invoke('session.getPromptHistory');
         if (savedHistory && savedHistory.length > 0) {
             promptHistory = savedHistory;
+            renderPromptHistory();
         }
 
         await loadProjects();
@@ -191,6 +198,17 @@ async function init() {
         renderDashboard();
         renderSecurityChecks();
         setupTaskInputShortcut();
+
+        // Load AI Chat defaults from settings
+        try {
+            const aiSettings = await ipcRenderer.invoke('ai.getSettings');
+            if (aiSettings) {
+                const debateModeEl = document.getElementById('aiDebateMode');
+                const aiModeEl = document.getElementById('aiAiMode');
+                if (debateModeEl && aiSettings.aiDefaultMode) debateModeEl.value = aiSettings.aiDefaultMode;
+                if (aiModeEl && aiSettings.aiDefaultAiMode) aiModeEl.value = aiSettings.aiDefaultAiMode;
+            }
+        } catch (_) {}
 
         console.log('=== INIT COMPLETE ===');
     } catch (error) {
@@ -917,7 +935,9 @@ function renderProjects() {
             ${project.description ? `<div class="project-item-desc">${escapeHtml(project.description)}</div>` : ''}
             <div class="project-item-path">${escapeHtml(project.path)}</div>
             <div class="project-item-actions">
-                <button onclick="event.stopPropagation(); deleteProject('${project.id}')">🗑️</button>
+                <button onclick="event.stopPropagation(); duplicateProject('${project.id}')" title="Duplicate project">📋</button>
+                <button onclick="event.stopPropagation(); editProject('${project.id}')" title="Edit project">✏️</button>
+                <button onclick="event.stopPropagation(); deleteProject('${project.id}')" title="Delete project">🗑️</button>
             </div>
         `;
 
@@ -975,6 +995,92 @@ function renderProjectInfo() {
     `;
 }
 
+let _duplicateSourceId = null;
+let _duplicateParentDir = null;
+
+async function duplicateProject(projectId) {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    const parentDir = await ipcRenderer.invoke('select-folder');
+    if (!parentDir) return;
+
+    _duplicateSourceId = projectId;
+    _duplicateParentDir = parentDir;
+
+    const defaultName = path.basename(project.path) + '-copy';
+    document.getElementById('dupFolderName').value = defaultName;
+    document.getElementById('dupParentPath').textContent = parentDir;
+    showModal('duplicateModal');
+}
+
+async function executeDuplicate() {
+    const folderName = document.getElementById('dupFolderName').value.trim();
+    if (!folderName) { showToast('Folder name is required', 'error'); return; }
+    if (!_duplicateSourceId || !_duplicateParentDir) return;
+
+    const destPath = path.join(_duplicateParentDir, folderName);
+    closeModal('duplicateModal');
+    showToast('Copying project files...', 'info');
+
+    const result = await ipcRenderer.invoke('duplicate-project', {
+        sourceProjectId: _duplicateSourceId,
+        destPath
+    });
+
+    _duplicateSourceId = null;
+    _duplicateParentDir = null;
+
+    if (result.success) {
+        await loadProjects();
+        showToast(`Project duplicated → ${folderName}`, 'success');
+        selectProject(result.project.id);
+    } else {
+        showToast('Duplicate failed: ' + result.error, 'error');
+    }
+}
+
+async function editProject(projectId) {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    document.getElementById('editProjectName').value = project.name || '';
+    document.getElementById('editProjectDesc').value = project.description || '';
+    document.getElementById('editProjectClaudeArgs').value = project.claudeArgs || '';
+    document.getElementById('editProjectModal').dataset.projectId = projectId;
+    showModal('editProjectModal');
+}
+
+async function saveEditProject() {
+    const modal = document.getElementById('editProjectModal');
+    const projectId = modal.dataset.projectId;
+    const name = document.getElementById('editProjectName').value.trim();
+    if (!name) {
+        showToast('Project name is required', 'error');
+        return;
+    }
+
+    const updates = {
+        name,
+        description: document.getElementById('editProjectDesc').value.trim(),
+        claudeArgs: document.getElementById('editProjectClaudeArgs').value.trim()
+    };
+
+    const result = await ipcRenderer.invoke('update-project', { projectId, updates });
+    if (result.success) {
+        await loadProjects();
+        if (currentProject && currentProject.id === projectId) {
+            currentProject = projects.find(p => p.id === projectId);
+            renderProjectInfo();
+            updateInfoPanel(currentProject);
+        }
+        closeModal('editProjectModal');
+        showToast('Project updated', 'success');
+    } else {
+        showToast('Failed to update: ' + result.error, 'error');
+    }
+}
+
 async function deleteProject(projectId) {
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
@@ -1015,8 +1121,9 @@ function openSettings() {
         ipcRenderer.invoke('get-settings'),
         ipcRenderer.invoke('autoFix.getSettings'),
         ipcRenderer.invoke('autoRestart.getSettings'),
-        ipcRenderer.invoke('healthCheck.getSettings')
-    ]).then(([s, af, ar, hc]) => {
+        ipcRenderer.invoke('healthCheck.getSettings'),
+        ipcRenderer.invoke('ai.getSettings')
+    ]).then(([s, af, ar, hc, ai]) => {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
@@ -1028,6 +1135,12 @@ function openSettings() {
         document.getElementById('healthCheckEnabled').checked = hc.enabled;
         document.getElementById('healthCheckInterval').value = hc.intervalHours || 24;
         document.getElementById('healthCheckAutoFix').checked = hc.autoFixOnError !== false;
+        // AI Chat settings
+        document.getElementById('geminiApiKey').value = ai.geminiApiKey || '';
+        document.getElementById('aiDefaultMode').value = ai.aiDefaultMode || 'collab';
+        document.getElementById('aiDefaultAiMode').value = ai.aiDefaultAiMode || 'dual';
+        document.getElementById('aiMaxRounds').value = ai.aiMaxRounds || 1;
+        document.getElementById('aiIncludeSource').checked = ai.aiIncludeSource || false;
         showModal('settingsModal');
     });
 }
@@ -1097,6 +1210,26 @@ async function saveSettings() {
         intervalHours: hcInterval,
         autoFixOnError: hcAutoFix
     });
+
+    // AI Chat settings
+    const geminiApiKey = document.getElementById('geminiApiKey').value.trim();
+    const aiDefaultMode = document.getElementById('aiDefaultMode').value;
+    const aiDefaultAiMode = document.getElementById('aiDefaultAiMode').value;
+    const aiMaxRounds = parseInt(document.getElementById('aiMaxRounds').value, 10) || 1;
+    const aiIncludeSource = document.getElementById('aiIncludeSource').checked;
+    await ipcRenderer.invoke('ai.setSettings', {
+        geminiApiKey,
+        aiDefaultMode,
+        aiDefaultAiMode,
+        aiMaxRounds,
+        aiIncludeSource
+    });
+
+    // Apply AI defaults to current selects
+    const debateModeEl = document.getElementById('aiDebateMode');
+    const aiModeEl = document.getElementById('aiAiMode');
+    if (debateModeEl) debateModeEl.value = aiDefaultMode;
+    if (aiModeEl) aiModeEl.value = aiDefaultAiMode;
 
     closeModal('settingsModal');
 
@@ -2015,74 +2148,700 @@ function clearActivity() {
 }
 
 // ===================================================================
+//  Pipeline — Codex-style AI Orchestration (Timeline + Unified Send)
+// ===================================================================
+
+// Timeline streaming state
+let timelineStreaming = null; // { type, entryDiv, bodyDiv, text }
+
+/**
+ * Unified task sender: ALL input goes through the pipeline router.
+ */
+async function sendUnifiedTask(text) {
+    if (!text) return;
+    if (!currentProject) {
+        showToast('Select a project first', 'error');
+        return;
+    }
+
+    const routeMode = document.getElementById('routeMode').value;
+    const projectId = currentProject.id;
+
+    // Expand timeline panel so user sees the flow
+    expandTimelinePanel();
+
+    // Add user input to timeline
+    appendTimelineEntry('user', text);
+
+    // Ensure PTY is running for claude-solo and pipeline modes
+    if (routeMode !== 'gemini-solo') {
+        const entry = termPool.get(projectId);
+        if (!entry || !entry.isAlive) {
+            showToast('Starting terminal...', 'info');
+            await getOrCreateTerminal(currentProject);
+            await ensurePtyRunning(currentProject);
+        }
+    }
+
+    // Show stop button
+    const stopBtn = document.getElementById('pipelineStopBtn');
+    if (stopBtn) stopBtn.style.display = '';
+
+    // Send to main process pipeline handler
+    try {
+        await ipcRenderer.invoke('pipeline.submit', {
+            projectId,
+            text,
+            routeMode
+        });
+    } catch (err) {
+        appendTimelineEntry('error', `Error: ${err.message}`);
+    }
+}
+
+function expandTimelinePanel() {
+    const panel = document.getElementById('timeline-panel');
+    const btn = document.getElementById('timelineToggleBtn');
+    if (panel) {
+        panel.classList.remove('collapsed');
+        if (btn) btn.textContent = '▼';
+    }
+}
+
+function stopPipeline() {
+    if (!currentProject) return;
+    ipcRenderer.invoke('ai.stop', { projectId: currentProject.id });
+    const stopBtn = document.getElementById('pipelineStopBtn');
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (timelineStreaming) finalizeTimelineStreaming();
+    appendTimelineEntry('route-info', '⏹ Pipeline stopped');
+}
+
+function toggleTimeline() {
+    const panel = document.getElementById('timeline-panel');
+    const btn = document.getElementById('timelineToggleBtn');
+    if (!panel) return;
+
+    if (panel.classList.contains('collapsed')) {
+        panel.classList.remove('collapsed');
+        if (btn) btn.textContent = '▼';
+    } else {
+        panel.classList.add('collapsed');
+        if (btn) btn.textContent = '▶';
+    }
+}
+
+function clearTimeline() {
+    const entries = document.getElementById('timelineEntries');
+    if (entries) entries.innerHTML = '';
+    timelineStreaming = null;
+
+    // Collapse the panel after clearing
+    const panel = document.getElementById('timeline-panel');
+    const btn = document.getElementById('timelineToggleBtn');
+    if (panel) panel.classList.add('collapsed');
+    if (btn) btn.textContent = '▶';
+
+    const stopBtn = document.getElementById('pipelineStopBtn');
+    if (stopBtn) stopBtn.style.display = 'none';
+}
+
+/**
+ * Append an entry to the timeline panel.
+ * @param {string} type - 'user' | 'gemini-design' | 'claude-execution' | 'route-info' | 'error'
+ * @param {string} content - Text content
+ */
+function appendTimelineEntry(type, content) {
+    const entries = document.getElementById('timelineEntries');
+    if (!entries) return;
+
+    const div = document.createElement('div');
+    div.className = `timeline-entry ${type}`;
+
+    const labels = {
+        'user': 'User',
+        'gemini-design': 'Gemini (설계)',
+        'claude-execution': 'Claude (실행)',
+        'route-info': 'Route',
+        'error': 'Error'
+    };
+
+    if (type !== 'route-info') {
+        const label = document.createElement('div');
+        label.className = 'timeline-entry-label';
+        label.textContent = labels[type] || type;
+        div.appendChild(label);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'timeline-entry-body';
+
+    if (type === 'route-info') {
+        body.textContent = content;
+    } else if (type === 'error') {
+        body.textContent = content;
+    } else if (type === 'user') {
+        body.textContent = content;
+    } else {
+        body.innerHTML = renderAiMarkdown(content);
+    }
+
+    div.appendChild(body);
+    entries.appendChild(div);
+    entries.scrollTop = entries.scrollHeight;
+
+    return div;
+}
+
+function startTimelineStreaming(type) {
+    const entries = document.getElementById('timelineEntries');
+    if (!entries) return;
+
+    const div = document.createElement('div');
+    div.className = `timeline-entry ${type} streaming`;
+
+    const labels = {
+        'gemini-design': 'Gemini (설계)',
+        'claude-execution': 'Claude (실행)',
+    };
+
+    const label = document.createElement('div');
+    label.className = 'timeline-entry-label';
+    label.textContent = labels[type] || type;
+    div.appendChild(label);
+
+    const body = document.createElement('div');
+    body.className = 'timeline-entry-body';
+    div.appendChild(body);
+
+    entries.appendChild(div);
+    entries.scrollTop = entries.scrollHeight;
+
+    timelineStreaming = { type, entryDiv: div, bodyDiv: body, text: '' };
+}
+
+function appendTimelineStreamToken(token) {
+    if (!timelineStreaming) return;
+    timelineStreaming.text += token;
+
+    if (!timelineStreaming._renderPending) {
+        timelineStreaming._renderPending = true;
+        requestAnimationFrame(() => {
+            if (timelineStreaming) {
+                timelineStreaming.bodyDiv.innerHTML = renderAiMarkdown(timelineStreaming.text);
+                timelineStreaming._renderPending = false;
+                const entries = document.getElementById('timelineEntries');
+                if (entries) entries.scrollTop = entries.scrollHeight;
+            }
+        });
+    }
+}
+
+function finalizeTimelineStreaming() {
+    if (!timelineStreaming) return;
+
+    const { entryDiv, bodyDiv, text } = timelineStreaming;
+    entryDiv.classList.remove('streaming');
+    bodyDiv.innerHTML = renderAiMarkdown(text);
+    timelineStreaming = null;
+
+    const entries = document.getElementById('timelineEntries');
+    if (entries) entries.scrollTop = entries.scrollHeight;
+}
+
+// --- Pipeline IPC Listeners ---
+
+ipcRenderer.on('pipeline.routed', (event, { projectId, mode, confidence, reason }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    // Update route indicator in toolbar
+    const indicator = document.getElementById('routeIndicator');
+    if (indicator) {
+        const modeLabels = {
+            'claude-solo': 'Claude Solo',
+            'gemini-solo': 'Gemini Solo',
+            'pipeline': 'Pipeline'
+        };
+        const cssClass = mode.replace('-', '-');
+        indicator.innerHTML = `<span class="route-badge ${mode}">${modeLabels[mode] || mode}</span> ${reason}`;
+    }
+
+    // Add route info to timeline
+    const modeNames = {
+        'claude-solo': 'Claude Solo (터미널 직접 실행)',
+        'gemini-solo': 'Gemini Solo (기획/디자인)',
+        'pipeline': 'Pipeline (Gemini 설계 → Claude 실행)'
+    };
+    appendTimelineEntry('route-info', `→ ${modeNames[mode] || mode} (${Math.round(confidence * 100)}% | ${reason})`);
+});
+
+ipcRenderer.on('pipeline.geminiToken', (event, { projectId, token }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (!timelineStreaming || timelineStreaming.type !== 'gemini-design') {
+        startTimelineStreaming('gemini-design');
+    }
+    appendTimelineStreamToken(token);
+});
+
+ipcRenderer.on('pipeline.geminiComplete', (event, { projectId, text }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (timelineStreaming && timelineStreaming.type === 'gemini-design') {
+        finalizeTimelineStreaming();
+    } else {
+        appendTimelineEntry('gemini-design', text);
+    }
+});
+
+ipcRenderer.on('pipeline.executionStarted', (event, { projectId }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    appendTimelineEntry('claude-execution', 'Claude가 터미널에서 실행 중...');
+
+    // Switch to terminal view if in AI chat mode
+    if (aiChatMode) {
+        toggleAiChat();
+    }
+});
+
+ipcRenderer.on('pipeline.error', (event, { projectId, message, source }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    // Finalize any streaming
+    if (timelineStreaming) {
+        finalizeTimelineStreaming();
+    }
+    appendTimelineEntry('error', `[${source || 'Pipeline'}] ${message}`);
+});
+
+// ===================================================================
+//  AI Chat — Dual AI (Claude + Gemini) chat integration
+// ===================================================================
+
+/**
+ * Toggle between Terminal+Timeline view and AI Chat bubble view.
+ */
+function toggleAiChat() {
+    aiChatMode = !aiChatMode;
+
+    const terminalContainer = document.getElementById('terminal-container');
+    const timelinePanel = document.getElementById('timeline-panel');
+    const aiChatContainer = document.getElementById('ai-chat-container');
+    const terminalOnlyBtns = document.getElementById('terminalOnlyBtns');
+    const aiChatBtn = document.querySelector('.toolbar-btn[onclick="toggleAiChat()"]');
+
+    if (aiChatMode) {
+        // Show AI Chat, hide Terminal + Timeline
+        if (terminalContainer) terminalContainer.style.display = 'none';
+        if (timelinePanel) timelinePanel.style.display = 'none';
+        if (aiChatContainer) aiChatContainer.style.display = 'flex';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
+        if (aiChatBtn) aiChatBtn.classList.add('active');
+
+        // Render messages for current project
+        renderAiChatMessages();
+    } else {
+        // Show Terminal + Timeline, hide AI Chat
+        if (terminalContainer) terminalContainer.style.display = '';
+        if (timelinePanel) timelinePanel.style.display = '';
+        if (aiChatContainer) aiChatContainer.style.display = 'none';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
+        if (aiChatBtn) aiChatBtn.classList.remove('active');
+
+        // Re-fit terminal
+        if (currentProject) {
+            const entry = termPool.get(currentProject.id);
+            if (entry) requestAnimationFrame(() => fitEntry(entry));
+        }
+    }
+}
+
+async function sendAiMessage() {
+    const textarea = document.getElementById('taskInput');
+    if (!textarea) return;
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    if (!currentProject) {
+        showToast('Select a project first', 'error');
+        return;
+    }
+
+    textarea.value = '';
+    textarea.style.height = 'auto';
+
+    const projectId = currentProject.id;
+
+    // Add user message to local state
+    if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
+    aiChatMessages.get(projectId).push({ role: 'user', content: text, timestamp: Date.now() });
+    appendAiMessage('user', text);
+
+    // Get mode settings from selects
+    const debateMode = document.getElementById('aiDebateMode').value;
+    const aiMode = document.getElementById('aiAiMode').value;
+    const operationType = document.getElementById('aiOperationType').value;
+
+    const hasStarted = aiChatStarted.get(projectId);
+
+    try {
+        if (!hasStarted) {
+            // First message — start new conversation
+            aiChatStarted.set(projectId, true);
+            await ipcRenderer.invoke('ai.start', {
+                projectId,
+                task: text,
+                mode: debateMode,
+                aiMode: aiMode,
+                operationType: operationType || undefined,
+                projectPath: currentProject.path,
+                projectName: currentProject.name,
+            });
+        } else {
+            // Continue existing conversation
+            await ipcRenderer.invoke('ai.continue', { projectId, message: text });
+        }
+    } catch (err) {
+        appendAiMessage('error', `Error: ${err.message}`);
+    }
+}
+
+function stopAiChat() {
+    if (!currentProject) return;
+    ipcRenderer.invoke('ai.stop', { projectId: currentProject.id });
+}
+
+function renderAiChatMessages() {
+    const container = document.getElementById('aiChatMessages');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!currentProject) {
+        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Select a project first</p></div>';
+        return;
+    }
+
+    const messages = aiChatMessages.get(currentProject.id);
+    if (!messages || messages.length === 0) {
+        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Claude (개발자) + Gemini (디자이너) 듀얼 AI 채팅</p><div class="placeholder-hint">아래에 메시지를 입력하세요</div></div>';
+        return;
+    }
+
+    for (const msg of messages) {
+        appendAiMessageDom(container, msg.role, msg.content);
+    }
+
+    container.scrollTop = container.scrollHeight;
+}
+
+function appendAiMessage(role, content) {
+    const container = document.getElementById('aiChatMessages');
+    if (!container) return;
+
+    // Remove placeholder if present
+    const placeholder = container.querySelector('.ai-chat-placeholder');
+    if (placeholder) placeholder.remove();
+
+    appendAiMessageDom(container, role, content);
+    container.scrollTop = container.scrollHeight;
+}
+
+function appendAiMessageDom(container, role, content) {
+    const div = document.createElement('div');
+    div.className = `ai-msg ai-msg-${role}`;
+
+    if (role === 'gemini' || role === 'claude') {
+        const label = document.createElement('div');
+        label.className = 'ai-msg-label';
+        label.textContent = role === 'gemini' ? 'Gemini (디자이너)' : 'Claude (개발자)';
+        div.appendChild(label);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'ai-msg-body';
+    if (role === 'error') {
+        body.textContent = content;
+    } else {
+        body.innerHTML = renderAiMarkdown(content);
+    }
+    div.appendChild(body);
+
+    container.appendChild(div);
+    return div;
+}
+
+function startStreamingMessage(role) {
+    const container = document.getElementById('aiChatMessages');
+    if (!container) return null;
+
+    // Remove placeholder if present
+    const placeholder = container.querySelector('.ai-chat-placeholder');
+    if (placeholder) placeholder.remove();
+
+    const div = document.createElement('div');
+    div.className = `ai-msg ai-msg-${role} ai-msg-streaming`;
+
+    const label = document.createElement('div');
+    label.className = 'ai-msg-label';
+    label.textContent = role === 'gemini' ? 'Gemini (디자이너)' : 'Claude (개발자)';
+    div.appendChild(label);
+
+    const body = document.createElement('div');
+    body.className = 'ai-msg-body';
+    div.appendChild(body);
+
+    container.appendChild(div);
+
+    aiChatStreaming = { role, div, body, text: '' };
+    container.scrollTop = container.scrollHeight;
+    return div;
+}
+
+function appendStreamToken(token) {
+    if (!aiChatStreaming) return;
+    aiChatStreaming.text += token;
+
+    // Render markdown periodically (throttle for performance)
+    if (!aiChatStreaming._renderPending) {
+        aiChatStreaming._renderPending = true;
+        requestAnimationFrame(() => {
+            if (aiChatStreaming) {
+                aiChatStreaming.body.innerHTML = renderAiMarkdown(aiChatStreaming.text);
+                aiChatStreaming._renderPending = false;
+                const container = document.getElementById('aiChatMessages');
+                if (container) container.scrollTop = container.scrollHeight;
+            }
+        });
+    }
+}
+
+function finalizeStreamMessage(fullText) {
+    if (!aiChatStreaming) return;
+
+    const { role, div, body } = aiChatStreaming;
+    div.classList.remove('ai-msg-streaming');
+    body.innerHTML = renderAiMarkdown(fullText);
+    aiChatStreaming = null;
+
+    // Save to local message store
+    if (currentProject) {
+        const projectId = currentProject.id;
+        if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
+        aiChatMessages.get(projectId).push({ role, content: fullText, timestamp: Date.now() });
+    }
+
+    const container = document.getElementById('aiChatMessages');
+    if (container) container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Simple markdown renderer for AI messages.
+ * Supports: code blocks, inline code, bold, headers, lists.
+ */
+function renderAiMarkdown(text) {
+    if (!text) return '';
+
+    // Escape HTML first
+    let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Code blocks: ```lang\n...\n```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        return `<pre><code>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code: `...`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold: **...**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Headers: # ## ###
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Unordered lists: - item
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+    // Paragraphs (double newline)
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = '<p>' + html + '</p>';
+
+    // Clean up empty paragraphs
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>(<h[123]>)/g, '$1');
+    html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<pre>)/g, '$1');
+    html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<ul>)/g, '$1');
+    html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+
+    return html;
+}
+
+// --- AI Chat IPC Listeners ---
+// These listeners feed into EITHER the bubble chat (when aiChatMode) or the timeline (when not).
+
+ipcRenderer.on('ai.geminiToken', (event, { projectId, token }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        // Bubble chat: stream into Gemini bubble
+        if (!aiChatStreaming || aiChatStreaming.role !== 'gemini') {
+            startStreamingMessage('gemini');
+        }
+        appendStreamToken(token);
+    } else {
+        // Timeline: stream into gemini-design entry
+        if (!timelineStreaming || timelineStreaming.type !== 'gemini-design') {
+            startTimelineStreaming('gemini-design');
+        }
+        appendTimelineStreamToken(token);
+    }
+});
+
+ipcRenderer.on('ai.claudeToken', (event, { projectId, token }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        // Bubble chat: stream into Claude bubble
+        if (!aiChatStreaming || aiChatStreaming.role !== 'claude') {
+            startStreamingMessage('claude');
+        }
+        appendStreamToken(token);
+    } else {
+        // Timeline: stream into claude-execution entry
+        if (!timelineStreaming || timelineStreaming.type !== 'claude-execution') {
+            startTimelineStreaming('claude-execution');
+        }
+        appendTimelineStreamToken(token);
+    }
+});
+
+ipcRenderer.on('ai.geminiComplete', (event, { projectId, text }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        finalizeStreamMessage(text);
+    } else {
+        if (timelineStreaming && timelineStreaming.type === 'gemini-design') {
+            finalizeTimelineStreaming();
+        }
+    }
+});
+
+ipcRenderer.on('ai.claudeComplete', (event, { projectId, text }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        finalizeStreamMessage(text);
+    } else {
+        if (timelineStreaming && timelineStreaming.type === 'claude-execution') {
+            finalizeTimelineStreaming();
+        }
+    }
+});
+
+ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        // Show round info in chat
+        appendAiMessage('system', `--- Round ${round}/${maxRounds} ---`);
+    } else {
+        const title = document.querySelector('.timeline-title');
+        if (title) title.textContent = `AI Pipeline — Round ${round}/${maxRounds}`;
+    }
+});
+
+ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        // Finalize any streaming in bubble chat
+        if (aiChatStreaming) {
+            finalizeStreamMessage(aiChatStreaming.text);
+        }
+    } else {
+        // Reset timeline title
+        const title = document.querySelector('.timeline-title');
+        if (title) title.textContent = 'AI Pipeline';
+
+        // Hide pipeline stop button
+        const pipelineStopBtn = document.getElementById('pipelineStopBtn');
+        if (pipelineStopBtn) pipelineStopBtn.style.display = 'none';
+
+        // Finalize any remaining timeline stream
+        if (timelineStreaming) {
+            finalizeTimelineStreaming();
+        }
+    }
+});
+
+ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+
+    if (aiChatMode) {
+        if (aiChatStreaming) finalizeStreamMessage(aiChatStreaming.text);
+        appendAiMessage('error', `[${source || 'AI'}] ${message}`);
+    } else {
+        if (timelineStreaming) finalizeTimelineStreaming();
+        appendTimelineEntry('error', `[${source || 'AI'}] ${message}`);
+    }
+});
+
+ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+    if (!aiChatMode) {
+        const title = document.querySelector('.timeline-title');
+        if (title) title.textContent = `AI Pipeline — ${status}`;
+    }
+});
+
+// ===================================================================
 //  Task Queue — unified queue-based auto-execution
 // ===================================================================
 
 function setupTaskInputShortcut() {
     const textarea = document.getElementById('taskInput');
     if (!textarea) return;
-
-    // --- IME 상태 명확 구분 ---
-    let _isComposing = false;          // IME 조합 중 여부 (compositionstart/end으로 추적)
-    let _enterDuringCompose = false;   // 조합 중 Enter 눌렀는지 여부
-    let _composeResetTimer = null;     // 안전 타이머: 지속 활성화 방지
-
-    textarea.addEventListener('compositionstart', () => {
-        _isComposing = true;
-    });
+    console.log('[Setup] taskInput found, attaching listeners');
 
     textarea.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            if (_isComposing || e.isComposing) {
-                // 한글 IME 조합 중 Enter → preventDefault 호출하지 않음 (조합 텍스트 커밋 보장)
-                _enterDuringCompose = true;
-                // 안전장치: 500ms 내에 compositionend가 안 오면 자동 리셋
-                if (_composeResetTimer) clearTimeout(_composeResetTimer);
-                _composeResetTimer = setTimeout(() => {
-                    if (_enterDuringCompose) {
-                        _enterDuringCompose = false;
-                        _isComposing = false;
-                        // Enter로 삽입된 줄바꿈 제거 후 전송
-                        textarea.value = textarea.value.replace(/\n+$/, '');
-                        sendTask();
-                    }
-                }, 500);
-                return;
-            }
-            // 조합 중이 아닐 때만 기본동작(줄바꿈) 방지
+        if (e.key === 'Enter' && !e.shiftKey && e.keyCode !== 229) {
             e.preventDefault();
-            sendTask();
-        }
-    });
-
-    textarea.addEventListener('compositionend', () => {
-        _isComposing = false;
-        if (_enterDuringCompose) {
-            _enterDuringCompose = false;
-            if (_composeResetTimer) { clearTimeout(_composeResetTimer); _composeResetTimer = null; }
-            // textarea.value 확정 대기 후 줄바꿈 제거 및 전송
-            setTimeout(() => {
-                textarea.value = textarea.value.replace(/\n+$/, '');
+            if (aiChatMode) {
+                sendAiMessage();
+            } else {
                 sendTask();
-            }, 30);
+            }
         }
     });
 
-    // blur 시 모든 IME 상태 초기화 (탭 전환 등으로 stuck 방지)
-    textarea.addEventListener('blur', () => {
-        _isComposing = false;
-        _enterDuringCompose = false;
-        if (_composeResetTimer) { clearTimeout(_composeResetTimer); _composeResetTimer = null; }
-    });
-
-    // Auto-resize textarea as user types
-    textarea.addEventListener('input', () => {
+    textarea.addEventListener('input', (e) => {
         textarea.style.height = 'auto';
         textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
+
+        if (e.inputType === 'insertLineBreak') {
+            textarea.value = textarea.value.replace(/\n+$/, '');
+            if (aiChatMode) {
+                sendAiMessage();
+            } else {
+                sendTask();
+            }
+        }
     });
+
+    textarea.addEventListener('focus', () => console.log('[textarea] focused'));
+    textarea.addEventListener('blur', () => console.log('[textarea] blurred'));
 }
 
-/** Add a task to the queue via IPC to main process. */
+/** Unified send — ALL input goes through pipeline routing. */
 async function sendTask() {
     const textarea = document.getElementById('taskInput');
     if (!textarea) return;
@@ -2107,24 +2866,20 @@ async function sendTask() {
     textarea.value = '';
     textarea.style.height = 'auto';
 
-    addActivity('task', `Task queued: ${text.substring(0, 80)}${text.length > 80 ? '…' : ''}`, targetProject.name);
+    // Save to prompt history
+    promptHistory.unshift({ text, timestamp: Date.now(), project: targetProject.name });
+    if (promptHistory.length > MAX_HISTORY) promptHistory.length = MAX_HISTORY;
+    renderPromptHistory();
+    if (historySaveTimer) clearTimeout(historySaveTimer);
+    historySaveTimer = setTimeout(() => {
+        ipcRenderer.invoke('session.savePromptHistory', promptHistory);
+    }, 1000);
+    ipcRenderer.invoke('session.saveLastPrompt', { projectId: targetProject.id, prompt: text });
 
-    // Ensure PTY is running for the target project
-    const entry = termPool.get(targetProject.id);
-    if (!entry || !entry.isAlive) {
-        showToast('Starting terminal...', 'info');
-        await getOrCreateTerminal(targetProject);
-        await ensurePtyRunning(targetProject);
-    }
+    addActivity('task', `Task: ${text.substring(0, 80)}${text.length > 80 ? '…' : ''}`, targetProject.name);
 
-    // Enqueue via main process — state update arrives via 'queue.updated' IPC
-    await ipcRenderer.invoke('queue.enqueue', {
-        projectId: targetProject.id,
-        projectName: targetProject.name,
-        text: fullText
-    });
-
-    // 대시보드 상태 즉시 반영
+    // ALL input goes through unified pipeline
+    await sendUnifiedTask(fullText);
     renderDashboard();
 }
 

@@ -4,6 +4,9 @@
 const PASTE_START = '\x1b[200~';
 const PASTE_END   = '\x1b[201~';
 
+function safelog(...args) { try { safelog(...args); } catch (_) {} }
+function safeerr(...args) { try { safeerr(...args); } catch (_) {} }
+
 class TaskQueue {
     /**
      * @param {Object} opts
@@ -23,6 +26,15 @@ class TaskQueue {
 
     /** Add a task and start processing. Returns the created task. */
     enqueue(projectId, projectName, text) {
+        // 같은 프로젝트에서 60초 이상 running 상태인 태스크를 done으로 강제 전환 (stuck 방지)
+        const now = Date.now();
+        for (const t of this._tasks) {
+            if (t.status === 'running' && t.projectId === projectId && now - (t._dispatchedAt || t.timestamp) > 60000) {
+                safelog(`[TaskQueue] Force-completing stuck task ${t.id} (running for ${Math.round((now - (t._dispatchedAt || t.timestamp))/1000)}s)`);
+                t.status = 'done';
+            }
+        }
+
         const task = {
             id: this._idCounter++,
             text,
@@ -64,50 +76,57 @@ class TaskQueue {
             if (t.status === 'running') busyProjects.add(t.projectId);
         }
 
-        // Find next pending task whose project is NOT busy
-        const next = this._tasks.find(t => t.status === 'pending' && !busyProjects.has(t.projectId));
-        if (!next) {
-            // Clean up retry timers if no pending work
-            const hasPending = this._tasks.some(t => t.status === 'pending');
-            if (!hasPending) {
-                for (const [pid, timer] of this._retryTimers) {
-                    clearTimeout(timer);
+        // PTY가 준비 안 된 프로젝트를 건너뛰면서 디스패치 가능한 태스크를 찾음
+        const skippedProjects = new Set();
+        let dispatched = false;
+
+        for (const task of this._tasks) {
+            if (task.status !== 'pending') continue;
+            if (busyProjects.has(task.projectId)) continue;
+            if (skippedProjects.has(task.projectId)) continue;
+
+            const entry = this._ptyPool.get(task.projectId);
+            if (!entry || !entry.alive || !entry.process || !entry.claudeReady) {
+                // PTY 준비 안 됨 → 이 프로젝트의 태스크는 건너뛰고 다음 프로젝트 시도
+                safelog(`[TaskQueue] BLOCKED task ${task.id}: entry=${!!entry} alive=${entry?.alive} process=${!!entry?.process} claudeReady=${entry?.claudeReady}`);
+                skippedProjects.add(task.projectId);
+                // 재시도 타이머 설정
+                if (!this._retryTimers.has(task.projectId)) {
+                    const pid = task.projectId;
+                    const timer = setTimeout(() => {
+                        this._retryTimers.delete(pid);
+                        this.process();
+                    }, 2000);
+                    this._retryTimers.set(pid, timer);
                 }
-                this._retryTimers.clear();
+                continue;
             }
-            this._notify();
-            return;
-        }
 
-        const targetProjectId = next.projectId;
-        const entry = this._ptyPool.get(targetProjectId);
-
-        if (!entry || !entry.alive || !entry.process || !entry.claudeReady) {
-            // Terminal not ready (or Claude CLI not started yet) — retry every 2s
-            if (!this._retryTimers.has(targetProjectId)) {
-                const timer = setTimeout(() => {
-                    this._retryTimers.delete(targetProjectId);
-                    this.process();
-                }, 2000);
-                this._retryTimers.set(targetProjectId, timer);
+            // Clear retry timer
+            if (this._retryTimers.has(task.projectId)) {
+                clearTimeout(this._retryTimers.get(task.projectId));
+                this._retryTimers.delete(task.projectId);
             }
-            this._notify();
-            return;
+
+            // 디스패치
+            safelog('[TaskQueue] DISPATCHING task', task.id, 'project:', task.project, 'text:', task.text.substring(0, 80));
+            task.status = 'running';
+            task._dispatchedAt = Date.now();
+            busyProjects.add(task.projectId);
+            this._writeToPty(task.projectId, task.text);
+            dispatched = true;
         }
 
-        // Clear retry timer for this project
-        if (this._retryTimers.has(targetProjectId)) {
-            clearTimeout(this._retryTimers.get(targetProjectId));
-            this._retryTimers.delete(targetProjectId);
-        }
-
-        // Mark as running and send via bracketed paste
-        next.status = 'running';
-        this._writeToPty(targetProjectId, next.text);
         this._notify();
 
-        // Try to dispatch tasks for other idle projects too
-        setTimeout(() => this.process(), 600);
+        // Clean up retry timers if no pending work left
+        const hasPending = this._tasks.some(t => t.status === 'pending');
+        if (!hasPending) {
+            for (const [pid, timer] of this._retryTimers) {
+                clearTimeout(timer);
+            }
+            this._retryTimers.clear();
+        }
     }
 
     /** Remove a pending task. Returns true if removed. */
@@ -183,7 +202,7 @@ class TaskQueue {
             });
         }
         this._notify();
-        console.log(`[TaskQueue] Restored ${savedTasks.length} task(s) from previous session`);
+        safelog(`[TaskQueue] Restored ${savedTasks.length} task(s) from previous session`);
     }
 
     /** Check if a project has pending/running work. */
@@ -198,7 +217,7 @@ class TaskQueue {
         try {
             this._onUpdate(this.getState());
         } catch (e) {
-            console.error('[TaskQueue] onUpdate error:', e.message);
+            safeerr('[TaskQueue] onUpdate error:', e.message);
         }
     }
 }
