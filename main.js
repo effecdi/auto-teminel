@@ -868,6 +868,12 @@ app.whenReady().then(() => {
     // ===================================================================
     autoUpdater.autoDownload = true;          // 자동 다운로드
     autoUpdater.autoInstallOnAppQuit = true;   // 앱 종료 시 자동 설치
+    autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'effecdi',
+        repo: 'auto-teminel',
+    });
+    safelog(`[Updater] Current version: ${app.getVersion()}, feed: github/effecdi/auto-teminel`);
 
     autoUpdater.on('checking-for-update', () => {
         safelog('[Updater] Checking for update...');

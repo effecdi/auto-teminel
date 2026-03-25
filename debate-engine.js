@@ -198,22 +198,37 @@ class DebateEngine {
         }
     }
 
-    /** Run a single Claude turn. */
+    /** Run a single Claude turn (with 300s timeout protection). */
     async _runClaude(callbacks, opts) {
+        const CLAUDE_TIMEOUT = 300000; // 5분 타임아웃
         return new Promise((resolve) => {
+            let resolved = false;
+            const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+
+            const timer = setTimeout(() => {
+                if (!resolved) {
+                    this.history.add('claude', '[응답 타임아웃]');
+                    callbacks.onError(new Error('Claude 응답 타임아웃 (300초)'), 'claude');
+                    if (handle && handle.abort) handle.abort();
+                    safeResolve();
+                }
+            }, CLAUDE_TIMEOUT);
+
             const handle = streamClaude(
                 this.history.getAll(),
                 {
                     onToken: (token) => callbacks.onClaudeToken(token),
                     onComplete: (text) => {
+                        clearTimeout(timer);
                         this.history.add('claude', text);
                         callbacks.onClaudeComplete(text);
-                        resolve();
+                        safeResolve();
                     },
                     onError: (err) => {
+                        clearTimeout(timer);
                         this.history.add('claude', '[응답 실패]');
                         callbacks.onError(err, 'claude');
-                        resolve();
+                        safeResolve();
                     },
                 },
                 { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath }
@@ -222,23 +237,39 @@ class DebateEngine {
         });
     }
 
-    /** Run a single Gemini turn. */
+    /** Run a single Gemini turn (with 180s timeout protection). */
     async _runGemini(callbacks, opts) {
+        const GEMINI_TIMEOUT = 180000; // 3분 타임아웃
         return new Promise((resolve) => {
+            let resolved = false;
+            const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+
+            const timer = setTimeout(() => {
+                if (!resolved) {
+                    this.history.add('gemini', '[응답 타임아웃]');
+                    callbacks.onError(new Error('Gemini 응답 타임아웃 (180초)'), 'gemini');
+                    // abort the handle
+                    if (handle && handle.abort) handle.abort();
+                    safeResolve();
+                }
+            }, GEMINI_TIMEOUT);
+
             const handle = streamGemini(
                 this.geminiApiKey,
                 this.history.getAll(),
                 {
                     onToken: (token) => callbacks.onGeminiToken(token),
                     onComplete: (text) => {
+                        clearTimeout(timer);
                         this.history.add('gemini', text);
                         callbacks.onGeminiComplete(text);
-                        resolve();
+                        safeResolve();
                     },
                     onError: (err) => {
+                        clearTimeout(timer);
                         this.history.add('gemini', '[응답 실패]');
                         callbacks.onError(err, 'gemini');
-                        resolve();
+                        safeResolve();
                     },
                 },
                 { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath }
@@ -275,11 +306,13 @@ class DebateEngine {
                     // === Dual 모드: Claude분석 → Gemini응답 → Claude구현 ===
 
                     // Step 1: Claude — 프로젝트 파일 읽고 분석
+                    console.log(`[DebateEngine] Step 1/3: Claude 분석 시작 (Round ${round}/${maxRounds})`);
                     callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
                         suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 결과를 상세하게 공유하세요. Gemini(디자이너)가 이 분석을 보고 응답합니다.',
                         projectContext, projectPath: this.projectPath,
                     });
+                    console.log(`[DebateEngine] Step 1/3: Claude 분석 완료`);
                     if (!this.running) break;
 
                     // Step 2: Gemini — Claude의 분석을 보고 응답
@@ -287,19 +320,23 @@ class DebateEngine {
                         callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
                         break;
                     }
+                    console.log(`[DebateEngine] Step 2/3: Gemini 응답 시작`);
                     callbacks.onStatusChange(`💬 Gemini 응답중... | Round ${round}/${maxRounds}`);
                     await this._runGemini(callbacks, {
                         suffix: modeConfig.geminiSuffix,
                         projectContext, projectPath: this.projectPath,
                     });
+                    console.log(`[DebateEngine] Step 2/3: Gemini 응답 완료`);
                     if (!this.running) break;
 
                     // Step 3: Claude — Gemini 결과를 받아 구현
+                    console.log(`[DebateEngine] Step 3/3: Claude 구현 시작`);
                     callbacks.onStatusChange(`💬 Claude 구현중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
                         suffix: modeConfig.claudeSuffix,
                         projectContext, projectPath: this.projectPath,
                     });
+                    console.log(`[DebateEngine] Step 3/3: Claude 구현 완료`);
                     if (!this.running) break;
 
                 } else {

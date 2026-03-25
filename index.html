@@ -242,6 +242,38 @@
             border-radius: 50%;
             background: #3fb950;
             display: inline-block;
+            animation: typingDotPulse 1.4s ease-in-out infinite;
+        }
+        /* ● ● ● Typing dots bubble (shown before text arrives) */
+        .ai-typing-dots-bubble {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 0;
+        }
+        .ai-typing-dots-bubble .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6e7681;
+            animation: typingDotBounce 1.4s ease-in-out infinite;
+        }
+        .ai-msg-claude .ai-typing-dots-bubble .dot {
+            background: #69f0ae;
+        }
+        .ai-msg-gemini .ai-typing-dots-bubble .dot {
+            background: #a78bfa;
+        }
+        .ai-typing-dots-bubble .dot:nth-child(1) { animation-delay: 0s; }
+        .ai-typing-dots-bubble .dot:nth-child(2) { animation-delay: 0.2s; }
+        .ai-typing-dots-bubble .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingDotBounce {
+            0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+            30% { opacity: 1; transform: translateY(-4px); }
+        }
+        @keyframes typingDotPulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
         }
         .ai-msg-bubble {
             background: #161b22;
@@ -471,6 +503,10 @@
         }
         #aiChatTextarea::placeholder {
             color: #484f58;
+        }
+        #aiChatTextarea:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         .ai-input-send-btn {
             background: #238636;

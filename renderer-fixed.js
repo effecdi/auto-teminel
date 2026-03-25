@@ -2575,6 +2575,10 @@ async function sendAiMessage() {
     if (stopBtn) stopBtn.style.display = '';
     if (sendBtn) sendBtn.style.display = 'none';
 
+    // Disable textarea and change placeholder during AI response
+    textarea.disabled = true;
+    textarea.placeholder = 'AI가 대화 중입니다...';
+
     // Get mode settings from selects
     const debateMode = document.getElementById('aiDebateMode').value;
     const aiMode = document.getElementById('aiAiMode').value;
@@ -2642,6 +2646,13 @@ function hideAiStatusBar() {
     const sendBtn = document.getElementById('aiChatSendBtn');
     if (stopBtn) stopBtn.style.display = 'none';
     if (sendBtn) sendBtn.style.display = '';
+
+    // Re-enable textarea and restore placeholder
+    const textarea = document.getElementById('aiChatTextarea');
+    if (textarea) {
+        textarea.disabled = false;
+        textarea.placeholder = '메시지를 입력하세요...';
+    }
 }
 
 /** Show big "대화중이에요..." center indicator */
@@ -2652,6 +2663,7 @@ function showAiSpeakingIndicator(who) {
     const name = document.getElementById('aiSpeakingName');
     if (!overlay) return;
 
+    const aiName = who === 'gemini' ? 'Gemini' : 'Claude';
     if (who === 'gemini') {
         if (avatar) avatar.textContent = '💎';
         if (name) { name.textContent = 'Gemini'; name.className = 'ai-speaking-name gemini'; }
@@ -2660,6 +2672,14 @@ function showAiSpeakingIndicator(who) {
         if (name) { name.textContent = 'Claude'; name.className = 'ai-speaking-name claude'; }
     }
     overlay.style.display = '';
+
+    // Update status bar with specific AI name
+    const statusText = document.getElementById('aiStatusText');
+    if (statusText && !statusText.textContent.includes('터미널')) {
+        const debateMode = document.getElementById('aiDebateMode');
+        const modeLabel = debateMode ? debateMode.options[debateMode.selectedIndex].text : '';
+        statusText.textContent = `${aiName}가 생각하는 중... | ${modeLabel}`;
+    }
 }
 
 /** Hide the speaking indicator */
@@ -2878,11 +2898,18 @@ function startStreamingMessage(role) {
     // Bubble for content
     const body = document.createElement('div');
     body.className = 'ai-msg-bubble ai-msg-body';
+
+    // Add ● ● ● typing dots inside bubble (removed when first token arrives)
+    const dotsBubble = document.createElement('div');
+    dotsBubble.className = 'ai-typing-dots-bubble';
+    dotsBubble.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+    body.appendChild(dotsBubble);
+
     div.appendChild(body);
 
     container.appendChild(div);
 
-    aiChatStreaming = { role, div, body, text: '', projectId: currentProject ? currentProject.id : null };
+    aiChatStreaming = { role, div, body, text: '', projectId: currentProject ? currentProject.id : null, _dotsShown: true };
     container.scrollTop = container.scrollHeight;
     return div;
 }
@@ -2890,6 +2917,13 @@ function startStreamingMessage(role) {
 function appendStreamToken(token) {
     if (!aiChatStreaming) return;
     aiChatStreaming.text += token;
+
+    // Remove typing dots bubble on first token
+    if (aiChatStreaming._dotsShown) {
+        const dots = aiChatStreaming.body.querySelector('.ai-typing-dots-bubble');
+        if (dots) dots.remove();
+        aiChatStreaming._dotsShown = false;
+    }
 
     // Render markdown periodically (throttle for performance)
     if (!aiChatStreaming._renderPending) {

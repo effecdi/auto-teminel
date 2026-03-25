@@ -489,7 +489,12 @@ function streamGemini(apiKey, history, callbacks, options) {
         }
     };
 
-    run();
+    run().catch((err) => {
+        clearInactivity();
+        if (!aborted) {
+            callbacks.onError(err instanceof Error ? err : new Error(String(err)));
+        }
+    });
 
     return {
         abort() {
