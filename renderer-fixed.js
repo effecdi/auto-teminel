@@ -63,6 +63,11 @@ const CC_ID = 'main';               // single CC instance id
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
 let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}]
 let aiChatStreaming = null;          // { role, div, projectId } — currently streaming message
+// Background streaming buffer — accumulates tokens when user is viewing a different project
+// Key: projectId, Value: { role, text, finalized: bool }
+const aiBgStreamBuffer = new Map();
+// Track which AI is currently speaking (for center indicator)
+let aiSpeakingNow = null;            // null | 'claude' | 'gemini'
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
 
 // AI Recommendation Buttons
@@ -521,6 +526,8 @@ async function selectProject(projectId) {
     // Re-render AI chat messages for new project
     if (aiChatMode) {
         hideAiStatusBar();
+        hideAiSpeakingIndicator();
+        aiSpeakingNow = null;
     }
 
     renderProjects();
@@ -2516,6 +2523,7 @@ function toggleAiChat() {
         if (toolbarSep) toolbarSep.style.display = '';
         if (aiChatBtn) aiChatBtn.classList.remove('active');
         if (contentHeader) contentHeader.style.display = '';
+        hideAiSpeakingIndicator();
 
         // Show terminal-specific UI elements
         const promptArea = document.querySelector('.prompt-area');
@@ -2634,6 +2642,30 @@ function hideAiStatusBar() {
     const sendBtn = document.getElementById('aiChatSendBtn');
     if (stopBtn) stopBtn.style.display = 'none';
     if (sendBtn) sendBtn.style.display = '';
+}
+
+/** Show big "대화중이에요..." center indicator */
+function showAiSpeakingIndicator(who) {
+    if (!aiChatMode) return;
+    const overlay = document.getElementById('aiSpeakingOverlay');
+    const avatar = document.getElementById('aiSpeakingAvatar');
+    const name = document.getElementById('aiSpeakingName');
+    if (!overlay) return;
+
+    if (who === 'gemini') {
+        if (avatar) avatar.textContent = '💎';
+        if (name) { name.textContent = 'Gemini'; name.className = 'ai-speaking-name gemini'; }
+    } else {
+        if (avatar) avatar.textContent = '🤖';
+        if (name) { name.textContent = 'Claude'; name.className = 'ai-speaking-name claude'; }
+    }
+    overlay.style.display = '';
+}
+
+/** Hide the speaking indicator */
+function hideAiSpeakingIndicator() {
+    const overlay = document.getElementById('aiSpeakingOverlay');
+    if (overlay) overlay.style.display = 'none';
 }
 
 /** Update AI chat header with current project info */
@@ -2986,68 +3018,126 @@ function renderAiMarkdown(text) {
 // --- AI Chat IPC Listeners ---
 // These listeners feed into EITHER the bubble chat (when aiChatMode) or the timeline (when not).
 
-ipcRenderer.on('ai.geminiToken', (event, { projectId, token }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
+// Helper: check if this projectId is the currently viewed project
+function _isActiveProject(projectId) {
+    return currentProject && currentProject.id === projectId;
+}
 
-    if (aiChatMode) {
-        // Bubble chat: stream into Gemini bubble
-        if (!aiChatStreaming || aiChatStreaming.role !== 'gemini') {
-            startStreamingMessage('gemini');
-        }
-        appendStreamToken(token);
+// Helper: accumulate token to background buffer for a non-active project
+function _bgBufferToken(projectId, role, token) {
+    if (!aiBgStreamBuffer.has(projectId)) {
+        aiBgStreamBuffer.set(projectId, { role, text: '' });
+    }
+    const buf = aiBgStreamBuffer.get(projectId);
+    if (buf.role !== role) {
+        // Role changed (e.g. Claude → Gemini) — save previous buffer as message
+        _bgBufferFinalize(projectId, buf.text);
+        aiBgStreamBuffer.set(projectId, { role, text: token });
     } else {
-        // Timeline: stream into gemini-design entry
-        if (!timelineStreaming || timelineStreaming.type !== 'gemini-design') {
-            startTimelineStreaming('gemini-design');
+        buf.text += token;
+    }
+}
+
+// Helper: finalize background buffer → save to aiChatMessages
+function _bgBufferFinalize(projectId, fullText) {
+    const buf = aiBgStreamBuffer.get(projectId);
+    if (!buf) return;
+    const text = fullText || buf.text;
+    if (text) {
+        if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
+        aiChatMessages.get(projectId).push({ role: buf.role, content: text, timestamp: Date.now() });
+    }
+    aiBgStreamBuffer.delete(projectId);
+}
+
+ipcRenderer.on('ai.geminiToken', (event, { projectId, token }) => {
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = 'gemini';
+        showAiSpeakingIndicator('gemini');
+        if (aiChatMode) {
+            if (!aiChatStreaming || aiChatStreaming.role !== 'gemini') {
+                startStreamingMessage('gemini');
+            }
+            appendStreamToken(token);
+        } else {
+            if (!timelineStreaming || timelineStreaming.type !== 'gemini-design') {
+                startTimelineStreaming('gemini-design');
+            }
+            appendTimelineStreamToken(token);
         }
-        appendTimelineStreamToken(token);
+    } else {
+        // Background project — buffer the token
+        _bgBufferToken(projectId, 'gemini', token);
     }
 });
 
 ipcRenderer.on('ai.claudeToken', (event, { projectId, token }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (aiChatMode) {
-        // Bubble chat: stream into Claude bubble
-        if (!aiChatStreaming || aiChatStreaming.role !== 'claude') {
-            startStreamingMessage('claude');
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = 'claude';
+        showAiSpeakingIndicator('claude');
+        if (aiChatMode) {
+            if (!aiChatStreaming || aiChatStreaming.role !== 'claude') {
+                startStreamingMessage('claude');
+            }
+            appendStreamToken(token);
+        } else {
+            if (!timelineStreaming || timelineStreaming.type !== 'claude-execution') {
+                startTimelineStreaming('claude-execution');
+            }
+            appendTimelineStreamToken(token);
         }
-        appendStreamToken(token);
     } else {
-        // Timeline: stream into claude-execution entry
-        if (!timelineStreaming || timelineStreaming.type !== 'claude-execution') {
-            startTimelineStreaming('claude-execution');
-        }
-        appendTimelineStreamToken(token);
+        _bgBufferToken(projectId, 'claude', token);
     }
 });
 
 ipcRenderer.on('ai.geminiComplete', (event, { projectId, text }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (aiChatMode) {
-        finalizeStreamMessage(text);
-    } else {
-        if (timelineStreaming && timelineStreaming.type === 'gemini-design') {
-            finalizeTimelineStreaming();
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = null;
+        hideAiSpeakingIndicator();
+        if (aiChatMode) {
+            finalizeStreamMessage(text);
+        } else {
+            if (timelineStreaming && timelineStreaming.type === 'gemini-design') {
+                finalizeTimelineStreaming();
+            }
         }
+    } else {
+        // Background: finalize buffer with full text
+        if (aiBgStreamBuffer.has(projectId)) {
+            const buf = aiBgStreamBuffer.get(projectId);
+            buf.text = text || buf.text; // prefer full text from complete event
+        } else {
+            aiBgStreamBuffer.set(projectId, { role: 'gemini', text: text || '' });
+        }
+        _bgBufferFinalize(projectId, text);
     }
 });
 
 ipcRenderer.on('ai.claudeComplete', (event, { projectId, text }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (aiChatMode) {
-        finalizeStreamMessage(text);
-    } else {
-        if (timelineStreaming && timelineStreaming.type === 'claude-execution') {
-            finalizeTimelineStreaming();
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = null;
+        hideAiSpeakingIndicator();
+        if (aiChatMode) {
+            finalizeStreamMessage(text);
+        } else {
+            if (timelineStreaming && timelineStreaming.type === 'claude-execution') {
+                finalizeTimelineStreaming();
+            }
         }
+    } else {
+        if (aiBgStreamBuffer.has(projectId)) {
+            const buf = aiBgStreamBuffer.get(projectId);
+            buf.text = text || buf.text;
+        } else {
+            aiBgStreamBuffer.set(projectId, { role: 'claude', text: text || '' });
+        }
+        _bgBufferFinalize(projectId, text);
     }
 });
 
 ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
+    if (!_isActiveProject(projectId)) return; // round start only matters for UI
 
     if (aiChatMode) {
         if (maxRounds > 1) {
@@ -3067,31 +3157,39 @@ ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
 });
 
 ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
+    // Always handle completion — flush background buffer if needed
+    if (aiBgStreamBuffer.has(projectId)) {
+        _bgBufferFinalize(projectId);
+    }
 
-    if (aiChatMode) {
-        // Finalize any streaming in bubble chat
-        if (aiChatStreaming) {
-            finalizeStreamMessage(aiChatStreaming.text);
-        }
-        // Restore send/stop buttons
-        hideAiStatusBar();
-        // Remove status indicator
-        const statusEl = document.getElementById('aiChatStatus');
-        if (statusEl) statusEl.remove();
-    } else {
-        // Finalize any remaining timeline stream
-        if (timelineStreaming) {
-            finalizeTimelineStreaming();
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = null;
+        hideAiSpeakingIndicator();
+        if (aiChatMode) {
+            if (aiChatStreaming) {
+                finalizeStreamMessage(aiChatStreaming.text);
+            }
+            hideAiStatusBar();
+            const statusEl = document.getElementById('aiChatStatus');
+            if (statusEl) statusEl.remove();
+        } else {
+            if (timelineStreaming) {
+                finalizeTimelineStreaming();
+            }
         }
     }
 });
 
 ipcRenderer.on('ai.executionQueued', (event, { projectId, mode }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-    if (aiChatMode) {
-        appendAiMessage('system', `${mode || '협업'} 완료 → 터미널에서 코드 적용 시작!`);
-        showAiStatusBar('터미널에서 코드 적용 중...', '');
+    if (_isActiveProject(projectId)) {
+        if (aiChatMode) {
+            appendAiMessage('system', `${mode || '협업'} 완료 → 터미널에서 코드 적용 시작!`);
+            showAiStatusBar('터미널에서 코드 적용 중...', '');
+        }
+    } else {
+        // Save as system message for background project
+        if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
+        aiChatMessages.get(projectId).push({ role: 'system', content: `${mode || '협업'} 완료 → 터미널에서 코드 적용 시작!`, timestamp: Date.now() });
     }
 });
 
@@ -3121,20 +3219,27 @@ ipcRenderer.on('terminal.idle', (event, { projectId }) => {
 });
 
 ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (aiChatMode) {
-        if (aiChatStreaming) finalizeStreamMessage(aiChatStreaming.text);
-        appendAiMessage('error', `[${source || 'AI'}] ${message}`);
-        hideAiStatusBar();
+    if (_isActiveProject(projectId)) {
+        aiSpeakingNow = null;
+        hideAiSpeakingIndicator();
+        if (aiChatMode) {
+            if (aiChatStreaming) finalizeStreamMessage(aiChatStreaming.text);
+            appendAiMessage('error', `[${source || 'AI'}] ${message}`);
+            hideAiStatusBar();
+        } else {
+            if (timelineStreaming) finalizeTimelineStreaming();
+            appendTimelineEntry('error', `[${source || 'AI'}] ${message}`);
+        }
     } else {
-        if (timelineStreaming) finalizeTimelineStreaming();
-        appendTimelineEntry('error', `[${source || 'AI'}] ${message}`);
+        // Save error to background project messages
+        if (aiBgStreamBuffer.has(projectId)) _bgBufferFinalize(projectId);
+        if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
+        aiChatMessages.get(projectId).push({ role: 'error', content: `[${source || 'AI'}] ${message}`, timestamp: Date.now() });
     }
 });
 
 ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
+    if (!_isActiveProject(projectId)) return;
     if (aiChatMode) {
         // Empty status means clear/hide the status bar
         if (!status) {

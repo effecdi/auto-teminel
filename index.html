@@ -531,6 +531,70 @@
 
 
 
+        /* ===== AI Speaking Overlay ===== */
+        .ai-speaking-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+            pointer-events: none;
+        }
+        .ai-speaking-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 28px 44px;
+            background: rgba(22, 27, 34, 0.92);
+            border: 1px solid rgba(48, 54, 61, 0.7);
+            border-radius: 20px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            animation: aiSpeakingIn 0.3s ease-out;
+        }
+        @keyframes aiSpeakingIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .ai-speaking-avatar {
+            font-size: 40px;
+            animation: aiSpeakingBounce 1.5s ease-in-out infinite;
+        }
+        @keyframes aiSpeakingBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        .ai-speaking-name {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .ai-speaking-name.claude { color: #69f0ae; }
+        .ai-speaking-name.gemini { color: #a78bfa; }
+        .ai-speaking-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e6edf3;
+            display: flex;
+            align-items: baseline;
+        }
+        .ai-speaking-dots span {
+            font-size: 22px;
+            font-weight: 700;
+            animation: aiDotBounce 1.4s ease-in-out infinite;
+        }
+        .ai-speaking-dots span:nth-child(1) { animation-delay: 0s; }
+        .ai-speaking-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .ai-speaking-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes aiDotBounce {
+            0%, 60%, 100% { opacity: 0.2; transform: translateY(0); }
+            30% { opacity: 1; transform: translateY(-5px); }
+        }
+
+        /* Position the messages container as relative for overlay */
+        #ai-chat-container { position: relative; }
+
         /* ===== Timeline Panel (hidden) ===== */
         .timeline-panel { display: none; }
     </style>
@@ -677,6 +741,17 @@
                         <h2>AI Chat</h2>
                         <p>Claude + Gemini 듀얼 AI 채팅</p>
                         <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
+                    </div>
+                </div>
+
+                <!-- Big Speaking Indicator (center overlay) -->
+                <div class="ai-speaking-overlay" id="aiSpeakingOverlay" style="display:none;">
+                    <div class="ai-speaking-content">
+                        <div class="ai-speaking-avatar" id="aiSpeakingAvatar">🤖</div>
+                        <div class="ai-speaking-name" id="aiSpeakingName">Claude</div>
+                        <div class="ai-speaking-text">
+                            대화중이에요<span class="ai-speaking-dots"><span>.</span><span>.</span><span>.</span></span>
+                        </div>
                     </div>
                 </div>
 
