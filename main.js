@@ -868,6 +868,10 @@ app.whenReady().then(() => {
     // ===================================================================
     autoUpdater.autoDownload = true;          // 자동 다운로드
     autoUpdater.autoInstallOnAppQuit = true;   // 앱 종료 시 자동 설치
+    // Skip code signing verification — app is unsigned
+    if (process.platform === 'darwin') {
+        autoUpdater.verifyUpdateCodeSignature = () => Promise.resolve(null);
+    }
     autoUpdater.setFeedURL({
         provider: 'github',
         owner: 'effecdi',
