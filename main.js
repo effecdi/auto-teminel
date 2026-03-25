@@ -53,7 +53,7 @@ const taskQueue = new TaskQueue({
             if (entry.alive && entry.process) {
                 entry.process.write('\r');
             }
-        }, 500);
+        }, 100);
     },
     ptyPool,
     onUpdate: (state) => {
@@ -422,7 +422,7 @@ function writeToPty(entry, text) {
     setTimeout(() => {
         if (!entry.alive || !entry.process) return;
         entry.process.write('\r');
-    }, 500);
+    }, 100);
 }
 
 function stripAnsi(str) {
@@ -849,8 +849,8 @@ app.whenReady().then(() => {
     // ===================================================================
     //  Auto-Updater (electron-updater)
     // ===================================================================
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoDownload = true;          // 자동 다운로드
+    autoUpdater.autoInstallOnAppQuit = true;   // 앱 종료 시 자동 설치
 
     autoUpdater.on('checking-for-update', () => {
         safelog('[Updater] Checking for update...');
@@ -908,12 +908,14 @@ app.whenReady().then(() => {
         }
     });
 
-    // Check for updates after a short delay
-    setTimeout(() => {
+    // Check for updates after a short delay, then periodically every 30 minutes
+    const doUpdateCheck = () => {
         autoUpdater.checkForUpdates().catch(err => {
             safelog('[Updater] Check failed:', err.message);
         });
-    }, 5000);
+    };
+    setTimeout(doUpdateCheck, 5000);
+    setInterval(doUpdateCheck, 30 * 60 * 1000);
 });
 
 app.on('window-all-closed', () => {
@@ -2494,6 +2496,8 @@ ${aiResponses}
         onError: (error, source) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('ai.error', { projectId, message: error.message, source });
+                // Clear stuck status bar on error
+                mainWindow.webContents.send('ai.statusChange', { projectId, status: '' });
             }
         },
         onStatusChange: (status) => {
@@ -2721,101 +2725,25 @@ function makePipelineCallbacks(projectId) {
 }
 
 ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) => {
-    let mode = routeMode;
-    let routeInfo = null;
-
-    // Auto-classify if mode is 'auto'
-    if (mode === 'auto') {
-        routeInfo = classifyTask(text);
-        mode = routeInfo.mode;
-    } else {
-        routeInfo = { mode, confidence: 1.0, reason: '수동 선택' };
-    }
-
-    // Notify renderer of routing result
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pipeline.routed', { projectId, ...routeInfo });
-    }
-
-    console.log(`[Pipeline] Route: ${mode} (confidence: ${routeInfo.confidence}, reason: ${routeInfo.reason})`);
-
-    if (mode === ROUTE_MODES.CLAUDE_SOLO) {
-        // Direct terminal execution via TaskQueue
-        const projects = store.get('projects', []);
-        const project = projects.find(p => p.id === projectId);
-        const projectName = project ? project.name : projectId;
-        taskQueue.enqueue(projectId, projectName, text);
-        return { success: true, mode, routeInfo };
-    }
-
-    if (mode === ROUTE_MODES.GEMINI_SOLO) {
-        // Gemini-only via debate engine
-        const engine = getOrCreateEngine(projectId);
-        if (engine.isRunning) return { success: false, error: 'Already running' };
-
-        const geminiApiKey = store.get('geminiApiKey', '');
-        const includeSource = store.get('aiIncludeSource', true);
-        const projects = store.get('projects', []);
-        const project = projects.find(p => p.id === projectId);
-
-        let projectContext = null;
-        if (project && project.path) {
-            try {
-                projectContext = buildProjectContext(project.path, project.name || projectId, 'design-change', { includeSource });
-            } catch (e) {
-                console.error('[Pipeline] Failed to build project context:', e.message);
-            }
+    // Direct write to PTY if ready (bypass queue for instant execution)
+    const entry = ptyPool.get(projectId);
+    if (entry && entry.alive && entry.process && entry.claudeReady) {
+        // No running tasks for this project — write directly
+        const hasRunning = taskQueue.getState().tasks.some(
+            t => t.status === 'running' && t.projectId === projectId
+        );
+        if (!hasRunning) {
+            console.log(`[Pipeline] Direct PTY write for ${projectId}`);
+            writeToPty(entry, text);
+            return { success: true, mode: 'direct' };
         }
-
-        const callbacks = makeDebateCallbacks(projectId, {
-            autoExecute: true,
-            mode: 'gemini-solo',
-        });
-        engine.start(text, callbacks, {
-            mode: 'collab',
-            aiMode: 'gemini-solo',
-            maxRounds: 1,
-            geminiApiKey,
-            projectContext,
-        });
-        return { success: true, mode, routeInfo };
     }
-
-    if (mode === ROUTE_MODES.PIPELINE) {
-        // Pipeline: Gemini design → Claude execute
-        const engine = getOrCreateEngine(projectId);
-        if (engine.isRunning) return { success: false, error: 'Already running' };
-
-        const geminiApiKey = store.get('geminiApiKey', '');
-        const includeSource = store.get('aiIncludeSource', true);
-        const projects = store.get('projects', []);
-        const project = projects.find(p => p.id === projectId);
-
-        let projectContext = null;
-        if (project && project.path) {
-            try {
-                projectContext = buildProjectContext(project.path, project.name || projectId, 'development', { includeSource });
-            } catch (e) {
-                console.error('[Pipeline] Failed to build project context:', e.message);
-            }
-        }
-
-        const callbacks = makePipelineCallbacks(projectId);
-        engine.start(text, callbacks, {
-            mode: 'pipeline',
-            aiMode: 'pipeline',
-            maxRounds: 1,
-            geminiApiKey,
-            projectContext,
-        });
-        return { success: true, mode, routeInfo };
-    }
-
-    return { success: false, error: 'Unknown mode: ' + mode };
-});
-
-ipcMain.handle('pipeline.classify', (event, { text }) => {
-    return classifyTask(text);
+    // Fallback: enqueue if PTY not ready or busy
+    const projects = store.get('projects', []);
+    const project = projects.find(p => p.id === projectId);
+    const projectName = project ? project.name : projectId;
+    taskQueue.enqueue(projectId, projectName, text);
+    return { success: true, mode: 'queued' };
 });
 
 // ===================================================================

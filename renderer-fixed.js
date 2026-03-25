@@ -58,7 +58,7 @@ let autoRestartResendPrompt = true;
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
 let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}]
-let aiChatStreaming = null;          // { role, div } — currently streaming message
+let aiChatStreaming = null;          // { role, div, projectId } — currently streaming message
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
 
 // AI Recommendation Buttons
@@ -219,6 +219,13 @@ async function init() {
                 if (debateModeEl && aiSettings.aiDefaultMode) debateModeEl.value = aiSettings.aiDefaultMode;
                 if (aiModeEl && aiSettings.aiDefaultAiMode) aiModeEl.value = aiSettings.aiDefaultAiMode;
             }
+        } catch (_) {}
+
+        // Display current app version in sidebar footer
+        try {
+            const appVersion = await ipcRenderer.invoke('updater.getVersion');
+            const versionText = document.getElementById('app-version-text');
+            if (versionText && appVersion) versionText.textContent = `v${appVersion}`;
         } catch (_) {}
 
         console.log('=== INIT COMPLETE ===');
@@ -496,10 +503,31 @@ async function selectProject(projectId) {
     // Persist last selected project
     ipcRenderer.invoke('session.setLastSelectedProject', projectId);
 
+    // Clean up AI chat state when switching projects
+    if (aiChatStreaming) {
+        // Finalize any in-progress streaming for previous project
+        finalizeStreamMessage(aiChatStreaming.text);
+    }
+    // Clear textarea to prevent accidental sends to wrong project
+    const aiTextarea = document.getElementById('aiChatTextarea');
+    if (aiTextarea) {
+        aiTextarea.value = '';
+        aiTextarea.style.height = 'auto';
+    }
+    // Re-render AI chat messages for new project
+    if (aiChatMode) {
+        hideAiStatusBar();
+    }
+
     renderProjects();
     renderProjectInfo();
     updateInfoPanel(currentProject);
     updateAiChatHeader();
+
+    // Re-render AI chat if in chat mode
+    if (aiChatMode) {
+        renderAiChatMessages();
+    }
 
     const entry = await getOrCreateTerminal(currentProject);
     showTerminal(projectId);
@@ -2184,7 +2212,7 @@ function clearActivity() {
 let timelineStreaming = null; // { type, entryDiv, bodyDiv, text }
 
 /**
- * Unified task sender: ALL input goes through the pipeline router.
+ * Send task directly to Claude terminal via task queue.
  */
 async function sendUnifiedTask(text) {
     if (!text) return;
@@ -2193,40 +2221,25 @@ async function sendUnifiedTask(text) {
         return;
     }
 
-    const routeMode = document.getElementById('routeMode').value;
     const projectId = currentProject.id;
 
-    // Only expand timeline for pipeline/gemini modes (not claude-solo — terminal is visible)
-    if (routeMode !== 'claude-solo' && routeMode !== 'auto') {
-        expandTimelinePanel();
+    // Ensure PTY is running
+    const entry = termPool.get(projectId);
+    if (!entry || !entry.isAlive) {
+        showToast('Starting terminal...', 'info');
+        await getOrCreateTerminal(currentProject);
+        await ensurePtyRunning(currentProject);
     }
 
-    // Add user input to timeline (compact — don't expand for claude-solo)
-    appendTimelineEntry('user', text);
-
-    // Ensure PTY is running for claude-solo and pipeline modes
-    if (routeMode !== 'gemini-solo') {
-        const entry = termPool.get(projectId);
-        if (!entry || !entry.isAlive) {
-            showToast('Starting terminal...', 'info');
-            await getOrCreateTerminal(currentProject);
-            await ensurePtyRunning(currentProject);
-        }
-    }
-
-    // Show stop button only for non-claude-solo modes
-    const stopBtn = document.getElementById('pipelineStopBtn');
-    if (stopBtn) stopBtn.style.display = (routeMode === 'claude-solo') ? 'none' : '';
-
-    // Send to main process pipeline handler
+    // Send directly to task queue
     try {
         await ipcRenderer.invoke('pipeline.submit', {
             projectId,
             text,
-            routeMode
+            routeMode: 'claude-solo'
         });
     } catch (err) {
-        appendTimelineEntry('error', `Error: ${err.message}`);
+        showToast(`Error: ${err.message}`, 'error');
     }
 }
 
@@ -2400,93 +2413,11 @@ function finalizeTimelineStreaming() {
     if (entries) entries.scrollTop = entries.scrollHeight;
 }
 
-// --- Pipeline IPC Listeners ---
-
-ipcRenderer.on('pipeline.routed', (event, { projectId, mode, confidence, reason }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    // Update route indicator in toolbar
-    const indicator = document.getElementById('routeIndicator');
-    if (indicator) {
-        const modeLabels = {
-            'claude-solo': 'Claude Solo',
-            'gemini-solo': 'Gemini Solo',
-            'pipeline': 'Pipeline'
-        };
-        indicator.innerHTML = `<span class="route-badge ${mode}">${modeLabels[mode] || mode}</span> ${reason}`;
-    }
-
-    // Update timeline title to reflect actual routing mode
-    const title = document.querySelector('.timeline-title');
-    if (title) {
-        const titleMap = {
-            'claude-solo': 'AI Pipeline — Claude Solo',
-            'gemini-solo': 'AI Pipeline — Gemini Solo',
-            'pipeline': 'AI Pipeline — Pipeline Mode'
-        };
-        title.textContent = titleMap[mode] || 'AI Pipeline';
-    }
-
-    // Claude Solo: auto-collapse timeline (terminal output is sufficient)
-    // Pipeline/Gemini Solo: expand to show design output
-    if (mode === 'claude-solo') {
-        const panel = document.getElementById('timeline-panel');
-        const btn = document.getElementById('timelineToggleBtn');
-        if (panel && !panel.classList.contains('collapsed')) {
-            panel.classList.add('collapsed');
-            if (btn) btn.textContent = '▶';
-        }
-    } else {
-        expandTimelinePanel();
-    }
-
-    // Add route info as inline badge on last user entry
-    const modeNames = {
-        'claude-solo': 'Claude Solo',
-        'gemini-solo': 'Gemini Solo',
-        'pipeline': 'Pipeline (Gemini → Claude)'
-    };
-    appendTimelineEntry('route-info', `→ ${modeNames[mode] || mode} (${reason})`);
-});
-
-ipcRenderer.on('pipeline.geminiToken', (event, { projectId, token }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (!timelineStreaming || timelineStreaming.type !== 'gemini-design') {
-        startTimelineStreaming('gemini-design');
-    }
-    appendTimelineStreamToken(token);
-});
-
-ipcRenderer.on('pipeline.geminiComplete', (event, { projectId, text }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    if (timelineStreaming && timelineStreaming.type === 'gemini-design') {
-        finalizeTimelineStreaming();
-    } else {
-        appendTimelineEntry('gemini-design', text);
-    }
-});
-
-ipcRenderer.on('pipeline.executionStarted', (event, { projectId }) => {
-    if (!currentProject || currentProject.id !== projectId) return;
-
-    appendTimelineEntry('claude-execution', 'Claude가 터미널에서 실행 중...');
-
-    // Switch to terminal view if in AI chat mode
-    if (aiChatMode) {
-        toggleAiChat();
-    }
-});
+// --- Pipeline IPC Listeners (simplified — routing removed) ---
 
 ipcRenderer.on('pipeline.error', (event, { projectId, message, source }) => {
     if (!currentProject || currentProject.id !== projectId) return;
-
-    // Finalize any streaming
-    if (timelineStreaming) {
-        finalizeTimelineStreaming();
-    }
-    appendTimelineEntry('error', `[${source || 'Pipeline'}] ${message}`);
+    showToast(`[${source || 'Error'}] ${message}`, 'error');
 });
 
 // ===================================================================
@@ -2505,18 +2436,16 @@ function toggleAiChat() {
     const terminalOnlyBtns = document.getElementById('terminalOnlyBtns');
     const aiChatBtn = document.querySelector('.toolbar-btn[onclick="toggleAiChat()"]');
 
-    const unifiedControls = document.querySelector('.unified-controls');
     const toolbarSep = document.getElementById('terminalToolbarSep');
 
     const contentHeader = document.querySelector('.content-header');
 
     if (aiChatMode) {
-        // Show AI Chat, hide Terminal + route controls + header
+        // Show AI Chat, hide Terminal + header
         if (terminalContainer) terminalContainer.style.display = 'none';
         if (timelinePanel) timelinePanel.style.display = 'none';
         if (aiChatContainer) aiChatContainer.style.display = 'flex';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
-        if (unifiedControls) unifiedControls.style.display = 'none';
         if (toolbarSep) toolbarSep.style.display = 'none';
         if (aiChatBtn) aiChatBtn.classList.add('active');
         if (contentHeader) contentHeader.style.display = 'none';
@@ -2543,11 +2472,10 @@ function toggleAiChat() {
             if (aiTextarea) aiTextarea.focus();
         }, 100);
     } else {
-        // Show Terminal + route controls + header, hide AI Chat
+        // Show Terminal + header, hide AI Chat
         if (terminalContainer) terminalContainer.style.display = '';
         if (aiChatContainer) aiChatContainer.style.display = 'none';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
-        if (unifiedControls) unifiedControls.style.display = '';
         if (toolbarSep) toolbarSep.style.display = '';
         if (aiChatBtn) aiChatBtn.classList.remove('active');
         if (contentHeader) contentHeader.style.display = '';
@@ -2612,7 +2540,6 @@ async function sendAiMessage() {
     try {
         if (!hasStarted) {
             // First message — start new conversation
-            aiChatStarted.set(projectId, true);
             await ipcRenderer.invoke('ai.start', {
                 projectId,
                 task: text,
@@ -2622,6 +2549,8 @@ async function sendAiMessage() {
                 projectPath: currentProject.path,
                 projectName: currentProject.name,
             });
+            // Only mark as started AFTER successful invoke
+            aiChatStarted.set(projectId, true);
         } else {
             // Continue existing conversation — pass project context every time
             await ipcRenderer.invoke('ai.continue', {
@@ -2635,6 +2564,10 @@ async function sendAiMessage() {
             });
         }
     } catch (err) {
+        // Reset started state if first message failed
+        if (!hasStarted) {
+            aiChatStarted.delete(projectId);
+        }
         appendAiMessage('error', `Error: ${err.message}`);
         hideAiStatusBar();
     }
@@ -2880,7 +2813,7 @@ function startStreamingMessage(role) {
 
     container.appendChild(div);
 
-    aiChatStreaming = { role, div, body, text: '' };
+    aiChatStreaming = { role, div, body, text: '', projectId: currentProject ? currentProject.id : null };
     container.scrollTop = container.scrollHeight;
     return div;
 }
@@ -2933,7 +2866,7 @@ function removeRecommendationButtons() {
 function finalizeStreamMessage(fullText) {
     if (!aiChatStreaming) return;
 
-    const { role, div, body } = aiChatStreaming;
+    const { role, div, body, projectId: streamProjectId } = aiChatStreaming;
     div.classList.remove('ai-msg-streaming');
     body.innerHTML = renderAiMarkdown(fullText);
 
@@ -2946,11 +2879,11 @@ function finalizeStreamMessage(fullText) {
 
     aiChatStreaming = null;
 
-    // Save to local message store
-    if (currentProject) {
-        const projectId = currentProject.id;
-        if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
-        aiChatMessages.get(projectId).push({ role, content: fullText, timestamp: Date.now() });
+    // Save to local message store — use original projectId from when streaming started
+    const targetProjectId = streamProjectId || (currentProject ? currentProject.id : null);
+    if (targetProjectId) {
+        if (!aiChatMessages.has(targetProjectId)) aiChatMessages.set(targetProjectId, []);
+        aiChatMessages.get(targetProjectId).push({ role, content: fullText, timestamp: Date.now() });
     }
 
     const container = document.getElementById('aiChatMessages');
@@ -3166,6 +3099,11 @@ ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
 ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
     if (!currentProject || currentProject.id !== projectId) return;
     if (aiChatMode) {
+        // Empty status means clear/hide the status bar
+        if (!status) {
+            hideAiStatusBar();
+            return;
+        }
         // Update status bar text
         const textEl = document.getElementById('aiStatusText');
         if (textEl) textEl.textContent = status;
@@ -3660,16 +3598,27 @@ function dismissUpdateBanner() {
 
 function onUpdateAction() {
     if (updateState === 'available') {
+        // Manual retry download
         updateState = 'downloading';
         ipcRenderer.invoke('updater.download');
-        // Switch to downloading state
         const actionBtn = document.getElementById('update-action-btn');
         const progressBar = document.getElementById('update-progress-bar');
-        const actions = document.getElementById('update-actions');
         if (actionBtn) { actionBtn.textContent = '다운로드 중...'; actionBtn.disabled = true; actionBtn.style.opacity = '0.7'; }
         if (progressBar) progressBar.style.display = '';
     } else if (updateState === 'downloaded') {
         ipcRenderer.invoke('updater.install');
+    }
+}
+
+// Manual update check (triggered by clicking version in sidebar)
+async function checkForUpdate() {
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '확인중...'; statusEl.style.color = '#8b949e'; statusEl.style.display = ''; }
+    try {
+        await ipcRenderer.invoke('updater.check');
+    } catch (_) {
+        if (statusEl) { statusEl.textContent = '확인 실패'; statusEl.style.color = '#f85149'; }
+        setTimeout(() => { if (statusEl) statusEl.style.display = 'none'; }, 3000);
     }
 }
 
@@ -3678,13 +3627,22 @@ ipcRenderer.on('updater.available', (event, { version, releaseNotes }) => {
     const badge = document.getElementById('update-version-badge');
     if (badge) badge.textContent = `v${version}`;
     const actionBtn = document.getElementById('update-action-btn');
-    if (actionBtn) { actionBtn.textContent = '업데이트'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
-    document.getElementById('update-progress-bar').style.display = 'none';
+    if (actionBtn) { actionBtn.textContent = '다운로드 중...'; actionBtn.disabled = true; actionBtn.style.opacity = '0.7'; }
+    const progressBar = document.getElementById('update-progress-bar');
+    if (progressBar) progressBar.style.display = '';
     showUpdateBanner(releaseNotes);
+    // Update sidebar version status
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '● 다운로드중'; statusEl.style.color = '#f0883e'; statusEl.style.display = ''; }
+    // Toast notification so user definitely sees it
+    showToast(`새 버전 v${version} 발견! 자동 다운로드 중...`, 'info');
 });
 
 ipcRenderer.on('updater.not-available', () => {
-    // silent
+    // Show "최신 버전" briefly in sidebar
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '● 최신'; statusEl.style.color = '#3fb950'; statusEl.style.display = ''; }
+    setTimeout(() => { if (statusEl) statusEl.style.display = 'none'; }, 5000);
 });
 
 ipcRenderer.on('updater.progress', (event, { percent, transferred, total }) => {
@@ -3701,17 +3659,32 @@ ipcRenderer.on('updater.downloaded', (event, { version }) => {
     updateState = 'downloaded';
     const actionBtn = document.getElementById('update-action-btn');
     const progressBar = document.getElementById('update-progress-bar');
-    if (actionBtn) { actionBtn.textContent = '지금 재시작'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    if (actionBtn) { actionBtn.textContent = '지금 재시작하여 설치'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
     if (progressBar) progressBar.style.display = 'none';
+    // Update sidebar status
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '● 재시작 필요'; statusEl.style.color = '#58a6ff'; statusEl.style.display = ''; }
+    // Toast notification
+    showToast(`v${version} 다운로드 완료! 재시작하면 자동 설치됩니다.`, 'success');
+    // Show banner again in case it was dismissed
+    showUpdateBanner();
 });
 
 ipcRenderer.on('updater.error', (event, { message }) => {
-    if (updateState === 'downloading') {
+    if (updateState === 'downloading' || updateState === 'available') {
         const actionBtn = document.getElementById('update-action-btn');
-        if (actionBtn) { actionBtn.textContent = '업데이트 실패'; actionBtn.disabled = true; }
-        setTimeout(dismissUpdateBanner, 5000);
+        if (actionBtn) { actionBtn.textContent = '업데이트 실패 — 재시도'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+        // Allow manual retry
+        updateState = 'available';
+    } else {
+        updateState = 'idle';
     }
-    updateState = 'idle';
+    // Only show error toast for non-dev-mode errors
+    if (message && !message.includes('ERR_UPDATER_INVALID_UPDATE_FEED') && !message.includes('dev-app-update')) {
+        showToast(`업데이트 오류: ${message}`, 'error');
+    }
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.style.display = 'none'; }
 });
 
 // ===================================================================

@@ -529,42 +529,7 @@
             width: 100%;
         }
 
-        .ai-select {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 4px;
-            padding: 3px 6px;
-            font-size: 11px;
-            cursor: pointer;
-            outline: none;
-        }
-        .ai-select:focus { border-color: var(--accent-green); }
 
-        /* ===== Unified Controls & Route Indicator ===== */
-        .unified-controls {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .route-indicator {
-            font-size: 10px;
-            color: var(--text-muted);
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .route-indicator .route-badge {
-            display: inline-block;
-            padding: 1px 6px;
-            border-radius: 3px;
-            font-size: 10px;
-            font-weight: 600;
-        }
-        .route-badge.claude-solo { background: rgba(0,230,118,0.15); color: #00e676; }
-        .route-badge.gemini-solo { background: rgba(224,64,251,0.15); color: #e040fb; }
-        .route-badge.pipeline { background: rgba(224,64,251,0.15); color: #ea80fc; }
 
         /* ===== Timeline Panel (hidden) ===== */
         .timeline-panel { display: none; }
@@ -592,6 +557,20 @@
                 <button class="btn-icon" onclick="addProject()">+</button>
             </div>
             <div class="projects-list" id="projectsList"></div>
+            <div id="app-version-footer" style="
+                padding: 8px 16px;
+                font-size: 11px;
+                color: #484f58;
+                border-top: 1px solid rgba(255,255,255,0.06);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: pointer;
+                transition: color 0.2s;
+            " onclick="checkForUpdate()" title="클릭하여 업데이트 확인">
+                <span id="app-version-text">v—</span>
+                <span id="app-version-status" style="font-size: 10px; color: #3fb950; display: none;">● 최신</span>
+            </div>
         </div>
 
         <!-- Center: Terminal Area -->
@@ -601,16 +580,6 @@
                     <span class="project-name">Select a project to start Claude CLI</span>
                 </div>
                 <div class="terminal-toolbar">
-                    <div class="unified-controls">
-                        <select class="ai-select" id="routeMode" title="AI routing mode">
-                            <option value="auto">Auto</option>
-                            <option value="claude-solo">Claude Solo</option>
-                            <option value="gemini-solo">Gemini Solo</option>
-                            <option value="pipeline">Pipeline (Gemini→Claude)</option>
-                        </select>
-                        <span class="route-indicator" id="routeIndicator"></span>
-                    </div>
-                    <span class="toolbar-separator">|</span>
                     <button class="toolbar-btn toolbar-btn-ai" id="aiChatToggleBtn" onclick="toggleAiChat()" title="Toggle AI Chat (Claude + Gemini)">🤖 AI Chat</button>
                     <span class="toolbar-separator" id="terminalToolbarSep">|</span>
                     <span id="terminalOnlyBtns">

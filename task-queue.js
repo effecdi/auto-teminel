@@ -96,7 +96,7 @@ class TaskQueue {
                     const timer = setTimeout(() => {
                         this._retryTimers.delete(pid);
                         this.process();
-                    }, 2000);
+                    }, 500);
                     this._retryTimers.set(pid, timer);
                 }
                 continue;

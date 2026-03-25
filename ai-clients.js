@@ -79,8 +79,34 @@ function streamClaude(history, callbacks, options) {
     let buffer = '';
     let aborted = false;
 
+    // Inactivity timeout: if no data for 120s, kill the process
+    const INACTIVITY_TIMEOUT = 120000;
+    let inactivityTimer = setTimeout(() => {
+        if (!aborted) {
+            aborted = true;
+            try { proc.kill('SIGTERM'); } catch (_) {}
+            callbacks.onError(new Error('Claude 응답 타임아웃 (120초 동안 응답 없음)'));
+        }
+    }, INACTIVITY_TIMEOUT);
+
+    const resetInactivityTimer = () => {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+            if (!aborted) {
+                aborted = true;
+                try { proc.kill('SIGTERM'); } catch (_) {}
+                if (fullText) {
+                    callbacks.onComplete(fullText);
+                } else {
+                    callbacks.onError(new Error('Claude 응답 타임아웃 (120초 동안 응답 없음)'));
+                }
+            }
+        }, INACTIVITY_TIMEOUT);
+    };
+
     proc.stdout.on('data', (data) => {
         if (aborted) return;
+        resetInactivityTimer();
         buffer += data.toString();
 
         const lines = buffer.split('\n');
@@ -124,6 +150,7 @@ function streamClaude(history, callbacks, options) {
     });
 
     proc.stderr.on('data', (data) => {
+        resetInactivityTimer();
         errorText += data.toString();
     });
 
@@ -131,6 +158,7 @@ function streamClaude(history, callbacks, options) {
     proc.stdin.end();
 
     proc.on('close', (code) => {
+        clearTimeout(inactivityTimer);
         if (aborted) return;
 
         // Flush remaining buffer
@@ -157,11 +185,13 @@ function streamClaude(history, callbacks, options) {
     });
 
     proc.on('error', (err) => {
+        clearTimeout(inactivityTimer);
         if (!aborted) callbacks.onError(err);
     });
 
     return {
         abort() {
+            clearTimeout(inactivityTimer);
             aborted = true;
             try { proc.kill('SIGTERM'); } catch (_) {}
         }
@@ -328,7 +358,27 @@ function executeGeminiTool(name, args, projectPath) {
 function streamGemini(apiKey, history, callbacks, options) {
     let aborted = false;
 
+    // Inactivity timeout for Gemini streaming
+    const INACTIVITY_TIMEOUT = 90000; // 90 seconds
+    let inactivityTimer = null;
+
+    const clearInactivity = () => { if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; } };
+    const resetInactivity = (fullTextRef) => {
+        clearInactivity();
+        inactivityTimer = setTimeout(() => {
+            if (!aborted) {
+                aborted = true;
+                if (fullTextRef.text) {
+                    callbacks.onComplete(fullTextRef.text);
+                } else {
+                    callbacks.onError(new Error('Gemini 응답 타임아웃 (90초 동안 응답 없음)'));
+                }
+            }
+        }, INACTIVITY_TIMEOUT);
+    };
+
     const run = async () => {
+        const fullTextRef = { text: '' };
         try {
             const client = getGeminiClient(apiKey);
             const projectPath = (options && options.projectPath) || null;
@@ -364,8 +414,10 @@ function streamGemini(apiKey, history, callbacks, options) {
 
             const chat = model.startChat({ history: geminiHistory });
 
-            let fullText = '';
             let currentParts = lastMsg.parts;
+
+            // Start inactivity timer
+            resetInactivity(fullTextRef);
 
             // Loop to handle function calls
             const MAX_TOOL_ROUNDS = 10;
@@ -373,10 +425,12 @@ function streamGemini(apiKey, history, callbacks, options) {
                 if (aborted) break;
 
                 const result = await chat.sendMessageStream(currentParts);
+                resetInactivity(fullTextRef);
 
                 let functionCalls = [];
                 for await (const chunk of result.stream) {
                     if (aborted) break;
+                    resetInactivity(fullTextRef);
                     // Check for function calls
                     const candidates = chunk.candidates || [];
                     for (const candidate of candidates) {
@@ -391,7 +445,7 @@ function streamGemini(apiKey, history, callbacks, options) {
                     try {
                         const text = chunk.text();
                         if (text) {
-                            fullText += text;
+                            fullTextRef.text += text;
                             callbacks.onToken(text);
                         }
                     } catch (_) {}
@@ -409,7 +463,7 @@ function streamGemini(apiKey, history, callbacks, options) {
                                    fc.name === 'readFile' ? `📖 ${fc.args.filePath}` :
                                    `📂 ${fc.args.dirPath}`;
                     callbacks.onToken(`\n\`[Tool: ${action}]\`\n`);
-                    fullText += `\n[Tool: ${action}]\n`;
+                    fullTextRef.text += `\n[Tool: ${action}]\n`;
 
                     functionResponses.push({
                         functionResponse: {
@@ -423,10 +477,12 @@ function streamGemini(apiKey, history, callbacks, options) {
                 currentParts = functionResponses;
             }
 
+            clearInactivity();
             if (!aborted) {
-                callbacks.onComplete(fullText);
+                callbacks.onComplete(fullTextRef.text);
             }
         } catch (err) {
+            clearInactivity();
             if (!aborted) {
                 callbacks.onError(err instanceof Error ? err : new Error(String(err)));
             }
@@ -437,6 +493,7 @@ function streamGemini(apiKey, history, callbacks, options) {
 
     return {
         abort() {
+            clearInactivity();
             aborted = true;
         }
     };
