@@ -917,14 +917,14 @@ app.whenReady().then(() => {
         }
     });
 
-    // Check for updates after a short delay, then periodically every 30 minutes
+    // Check for updates after a short delay, then periodically every 10 minutes
     const doUpdateCheck = () => {
         autoUpdater.checkForUpdates().catch(err => {
             safelog('[Updater] Check failed:', err.message);
         });
     };
-    setTimeout(doUpdateCheck, 5000);
-    setInterval(doUpdateCheck, 30 * 60 * 1000);
+    setTimeout(doUpdateCheck, 3000);
+    setInterval(doUpdateCheck, 10 * 60 * 1000);
 });
 
 app.on('window-all-closed', () => {

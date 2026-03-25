@@ -1,6 +1,6 @@
 {
   "name": "claude-cli-terminal",
-  "version": "4.2.8",
+  "version": "4.2.9",
   "description": "멀티 프로젝트 Claude CLI 터미널 - 시스템에 설치된 claude 명령어를 터미널 에뮬레이터로 구동",
   "main": "main.js",
   "scripts": {
