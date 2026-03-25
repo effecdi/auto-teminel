@@ -777,6 +777,7 @@ function setupClipboardPaste() {
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea') return;
 
+        // Check for image in clipboard
         const img = clipboard.readImage();
         if (!img.isEmpty()) {
             e.preventDefault();
@@ -790,6 +791,7 @@ function setupClipboardPaste() {
             return;
         }
 
+        // Check for files
         if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
             const pastedFiles = Array.from(e.clipboardData.files);
             if (pastedFiles.length > 0) {
@@ -799,6 +801,29 @@ function setupClipboardPaste() {
                     addAttachedImage(file.path);
                 });
                 return;
+            }
+        }
+
+        // Text paste — forward to the active textarea
+        const text = (e.clipboardData && e.clipboardData.getData('text')) || clipboard.readText();
+        if (text) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const textarea = aiChatMode
+                ? document.getElementById('aiChatTextarea')
+                : document.getElementById('taskInput');
+            if (textarea) {
+                textarea.focus();
+                // Insert at cursor position (or append)
+                const start = textarea.selectionStart || 0;
+                const end = textarea.selectionEnd || 0;
+                const before = textarea.value.substring(0, start);
+                const after = textarea.value.substring(end);
+                textarea.value = before + text + after;
+                textarea.selectionStart = textarea.selectionEnd = start + text.length;
+                // Trigger height auto-resize
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
             }
         }
     }, true);
