@@ -12,6 +12,7 @@ const { startRemoteServer, stopRemoteServer, broadcastOutput, broadcastEvent, br
 const { DebateEngine, MODES } = require('./debate-engine');
 const { buildProjectContext, getOperationsList } = require('./project-context');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
+const { autoUpdater } = require('electron-updater');
 
 // Prevent EPIPE crashes when stdout/stderr pipes are closed during shutdown
 process.stdout?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
@@ -844,6 +845,75 @@ app.whenReady().then(() => {
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
     createWindow();
+
+    // ===================================================================
+    //  Auto-Updater (electron-updater)
+    // ===================================================================
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('checking-for-update', () => {
+        safelog('[Updater] Checking for update...');
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.checking');
+        }
+    });
+
+    autoUpdater.on('update-available', (info) => {
+        safelog(`[Updater] Update available: v${info.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.available', {
+                version: info.version,
+                releaseNotes: info.releaseNotes,
+                releaseDate: info.releaseDate
+            });
+        }
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+        safelog('[Updater] No update available.');
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.not-available', {
+                version: info.version
+            });
+        }
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.progress', {
+                percent: progress.percent,
+                bytesPerSecond: progress.bytesPerSecond,
+                transferred: progress.transferred,
+                total: progress.total
+            });
+        }
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+        safelog(`[Updater] Update downloaded: v${info.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.downloaded', {
+                version: info.version
+            });
+        }
+    });
+
+    autoUpdater.on('error', (err) => {
+        safelog('[Updater] Error:', err.message);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.error', {
+                message: err.message
+            });
+        }
+    });
+
+    // Check for updates after a short delay
+    setTimeout(() => {
+        autoUpdater.checkForUpdates().catch(err => {
+            safelog('[Updater] Check failed:', err.message);
+        });
+    }, 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -2478,6 +2548,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
         maxRounds,
         geminiApiKey,
         projectContext,
+        projectPath: effectivePath,
     }).catch(err => {
         safelog('[AI] start error:', err.message);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2488,7 +2559,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
     return { success: true, sessionId: engine.sessionId };
 });
 
-ipcMain.handle('ai.continue', async (event, { projectId, message }) => {
+ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, operationType, projectPath, projectName }) => {
     const engine = getOrCreateEngine(projectId);
 
     // If engine is still marked running from previous round, force-reset
@@ -2496,12 +2567,42 @@ ipcMain.handle('ai.continue', async (event, { projectId, message }) => {
         engine.stop();
     }
 
+    // Rebuild project context fresh for every continue call
+    const includeSource = store.get('aiIncludeSource', true);
+    let effectivePath = projectPath;
+    let effectiveName = projectName || projectId;
+    if (!effectivePath) {
+        const projects = store.get('projects', []);
+        const proj = projects.find(p => p.id === projectId);
+        if (proj && proj.path) {
+            effectivePath = proj.path;
+            effectiveName = proj.name || projectId;
+        }
+    }
+
+    let projectContext = engine.projectContext; // fallback to existing
+    const effectiveOp = operationType || engine.mode || 'development';
+    if (effectivePath) {
+        try {
+            projectContext = buildProjectContext(effectivePath, effectiveName, effectiveOp, { includeSource });
+            console.log(`[AI] Project context rebuilt for continue: ${effectivePath}`);
+        } catch (e) {
+            console.error('[AI] Failed to rebuild project context:', e.message);
+        }
+    }
+
+    const effectiveMode = mode || engine.mode;
     const callbacks = makeDebateCallbacks(projectId, {
         autoExecute: true,
-        mode: engine.mode,
+        mode: effectiveMode,
     });
     // Do not await — let it run in background, IPC events will stream results
-    engine.continue(message, callbacks).catch(err => {
+    engine.continue(message, callbacks, {
+        projectContext,
+        projectPath: effectivePath,
+        mode: effectiveMode,
+        aiMode: aiMode || engine.aiMode,
+    }).catch(err => {
         safelog('[AI] continue error:', err.message);
         // Send error to renderer so user can see it
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2715,6 +2816,25 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
 
 ipcMain.handle('pipeline.classify', (event, { text }) => {
     return classifyTask(text);
+});
+
+// ===================================================================
+//  Auto-Updater IPC handlers
+// ===================================================================
+ipcMain.handle('updater.check', () => {
+    return autoUpdater.checkForUpdates().catch(err => ({ error: err.message }));
+});
+
+ipcMain.handle('updater.download', () => {
+    return autoUpdater.downloadUpdate().catch(err => ({ error: err.message }));
+});
+
+ipcMain.handle('updater.install', () => {
+    autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle('updater.getVersion', () => {
+    return app.getVersion();
 });
 
 // Load schedules on startup (after a short delay to let window load)

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* ===== AI Chat Styles ===== */
+        /* ===== AI Chat Styles (Redesigned) ===== */
 
         .toolbar-btn-ai { color: #00e676; font-weight: 600; }
         .toolbar-btn-ai.active { background: rgba(0,230,118,0.15); color: #69f0ae; border-color: #00e676; }
@@ -23,17 +23,510 @@
             flex: 1;
             min-height: 0;
             overflow: hidden;
-            background: var(--bg-primary);
+            background: #0d1117;
         }
 
-        .ai-chat-controls {
+        /* ===== AI Chat Header ===== */
+        .ai-chat-header {
             display: flex;
             align-items: center;
+            padding: 10px 16px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            gap: 12px;
+            min-height: 44px;
+        }
+        .ai-chat-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .ai-chat-back-btn {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+        .ai-chat-back-btn:hover {
+            background: rgba(255,255,255,0.08);
+            color: #e6edf3;
+        }
+        .ai-chat-project-icon {
+            font-size: 18px;
+        }
+        .ai-chat-project-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e6edf3;
+        }
+        .ai-chat-separator {
+            color: #484f58;
+            font-size: 14px;
+        }
+        .ai-chat-operation-select {
+            background: none;
+            border: none;
+            color: #58a6ff;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+            padding: 0 2px;
+            font-family: var(--font-ui, 'Inter', sans-serif);
+            appearance: none;
+            -webkit-appearance: none;
+        }
+        .ai-chat-operation-select:hover {
+            text-decoration: underline;
+        }
+        .ai-chat-operation-select option {
+            background: #21262d;
+            color: #e6edf3;
+        }
+
+        .ai-chat-header-center {
+            flex: 1;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* AI Mode Tabs */
+        .ai-mode-tabs {
+            display: flex;
+            background: #21262d;
+            border-radius: 8px;
+            padding: 2px;
+            gap: 2px;
+        }
+        .ai-mode-tab {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 5px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .ai-mode-tab:hover {
+            color: #e6edf3;
+            background: rgba(255,255,255,0.06);
+        }
+        .ai-mode-tab.active {
+            background: #388bfd30;
+            color: #58a6ff;
+        }
+
+        .ai-chat-header-right {
+            flex-shrink: 0;
+        }
+        .ai-chat-mode-select {
+            background: #21262d;
+            color: #e6edf3;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 5px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b949e' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            padding-right: 26px;
+        }
+        .ai-chat-mode-select:focus { border-color: #388bfd; }
+
+        /* ===== AI Chat Messages ===== */
+        .ai-chat-messages {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .ai-chat-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            color: #484f58;
+            text-align: center;
+        }
+        .ai-chat-placeholder h2 { font-size: 20px; margin: 12px 0 6px; color: #8b949e; font-weight: 600; }
+        .ai-chat-placeholder p { font-size: 13px; color: #484f58; }
+        .ai-chat-placeholder .placeholder-icon { font-size: 40px; opacity: 0.6; }
+        .ai-chat-placeholder .placeholder-hint { font-size: 12px; margin-top: 10px; color: #484f58; }
+
+        /* Message bubbles */
+        .ai-msg {
+            max-width: 85%;
+            font-size: 13px;
+            line-height: 1.7;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .ai-msg-user {
+            align-self: flex-end;
+            background: #1a3a4a;
+            color: #e6edf3;
+            padding: 10px 16px;
+            border-radius: 16px 16px 4px 16px;
+        }
+        .ai-msg-gemini,
+        .ai-msg-claude {
+            align-self: flex-start;
+            display: flex;
+            flex-direction: column;
             gap: 6px;
-            padding: 6px 10px;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-primary);
+        }
+        .ai-msg-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ai-msg-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .ai-msg-gemini .ai-msg-avatar {
+            background: #1a1a3d;
+        }
+        .ai-msg-claude .ai-msg-avatar {
+            background: #1a2e2a;
+        }
+        .ai-msg-name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .ai-msg-gemini .ai-msg-name { color: #a78bfa; }
+        .ai-msg-claude .ai-msg-name { color: #69f0ae; }
+        .ai-msg-role {
+            font-size: 10px;
+            font-weight: 500;
+            padding: 1px 6px;
+            border-radius: 4px;
+            color: #8b949e;
+            background: rgba(139,148,158,0.12);
+        }
+        .ai-msg-typing-indicator {
+            font-size: 11px;
+            color: #3fb950;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .ai-msg-typing-indicator .typing-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #3fb950;
+            display: inline-block;
+        }
+        .ai-msg-bubble {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: #c9d1d9;
+            margin-left: 36px;
+        }
+        .ai-msg-gemini .ai-msg-bubble {
+            border-color: rgba(167,139,250,0.15);
+        }
+        .ai-msg-claude .ai-msg-bubble {
+            border-color: rgba(105,240,174,0.15);
+        }
+
+        .ai-msg-error {
+            align-self: center;
+            background: rgba(248,81,73,0.1);
+            color: #f85149;
+            font-size: 12px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(248,81,73,0.2);
+        }
+        .ai-msg-system {
+            align-self: center;
+            color: #3fb950;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 6px 14px;
+            background: rgba(63,185,80,0.08);
+            border: 1px solid rgba(63,185,80,0.2);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        /* Streaming cursor */
+        .ai-msg-streaming .ai-msg-bubble::after,
+        .ai-msg-streaming .ai-msg-body::after {
+            content: '▋';
+            animation: ai-blink 0.8s infinite;
+        }
+        @keyframes ai-blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Code blocks inside AI messages */
+        .ai-msg pre, .ai-msg-bubble pre {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 8px 0;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .ai-msg code, .ai-msg-bubble code {
+            font-family: var(--font-mono, 'Roboto Mono', 'Menlo', 'Monaco', monospace);
+            font-size: 12px;
+        }
+        .ai-msg p code, .ai-msg-bubble p code {
+            background: rgba(110,118,129,0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .ai-msg h1, .ai-msg h2, .ai-msg h3,
+        .ai-msg-bubble h1, .ai-msg-bubble h2, .ai-msg-bubble h3 {
+            font-size: 14px;
+            margin: 10px 0 4px;
+            color: #e6edf3;
+        }
+        .ai-msg strong, .ai-msg-bubble strong { font-weight: 700; }
+        .ai-msg ul, .ai-msg ol,
+        .ai-msg-bubble ul, .ai-msg-bubble ol { padding-left: 20px; margin: 4px 0; }
+
+        /* Recommendation buttons */
+        .ai-recommendations {
+            display: flex;
             flex-wrap: wrap;
+            gap: 8px;
+            padding: 8px 0;
+            justify-content: center;
+        }
+        .ai-rec-btn {
+            background: rgba(56,139,253,0.08);
+            border: 1px solid rgba(56,139,253,0.25);
+            color: #58a6ff;
+            border-radius: 20px;
+            padding: 6px 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .ai-rec-btn:hover {
+            background: rgba(56,139,253,0.18);
+            border-color: #58a6ff;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(56,139,253,0.15);
+        }
+
+        /* Message collapse/expand */
+        .ai-msg-collapsed {
+            max-height: 200px;
+            overflow: hidden;
+            position: relative;
+            -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+            mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+        }
+        .ai-msg-expand-btn {
+            background: none;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 3px 12px;
+            border-radius: 12px;
+            margin-top: 4px;
+            margin-left: 36px;
+            display: block;
+            width: fit-content;
+            transition: all 0.2s;
+        }
+        .ai-msg-expand-btn:hover {
+            color: #e6edf3;
+            border-color: #484f58;
+        }
+
+        /* History collapse */
+        .ai-history-collapse {
+            text-align: center;
+            padding: 8px 0;
+        }
+        .ai-history-toggle-btn {
+            background: rgba(110, 118, 129, 0.1);
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 4px 16px;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+        .ai-history-toggle-btn:hover {
+            background: rgba(110, 118, 129, 0.2);
+            color: #e6edf3;
+        }
+
+        /* ===== AI Chat Status Bar ===== */
+        .ai-chat-statusbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 24px;
+            background: #161b22;
+            border-top: 1px solid #21262d;
+            font-size: 12px;
+        }
+        .ai-statusbar-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ai-status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #3fb950;
+            animation: ai-dot-pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes ai-dot-pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+        .ai-status-text {
+            color: #58a6ff;
+        }
+        .ai-statusbar-right {
+            color: #484f58;
+            font-size: 12px;
+        }
+
+        /* ===== AI Chat Input Area ===== */
+        .ai-chat-input-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #0d1117;
+            border-top: 1px solid #21262d;
+        }
+        .ai-input-attach-btn {
+            background: none;
+            border: none;
+            color: #484f58;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 6px;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .ai-input-attach-btn:hover {
+            color: #8b949e;
+            background: rgba(255,255,255,0.06);
+        }
+        #aiChatTextarea {
+            flex: 1;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            color: #e6edf3;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-family: var(--font-ui, 'Inter', sans-serif);
+            resize: none;
+            outline: none;
+            min-height: 20px;
+            max-height: 120px;
+            line-height: 1.4;
+        }
+        #aiChatTextarea:focus {
+            border-color: #388bfd;
+        }
+        #aiChatTextarea::placeholder {
+            color: #484f58;
+        }
+        .ai-input-send-btn {
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all 0.15s;
+        }
+        .ai-input-send-btn:hover {
+            background: #2ea043;
+        }
+        .ai-input-stop-btn {
+            background: #4a1d1d;
+            color: #f85149;
+            border: 1px solid rgba(248,81,73,0.3);
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all 0.15s;
+        }
+        .ai-input-stop-btn:hover {
+            background: #5c2222;
+            border-color: #f85149;
+        }
+
+        /* AI Chat status indicator (in messages area) */
+        .ai-chat-status {
+            text-align: center;
+            font-size: 12px;
+            color: #58a6ff;
+            padding: 8px 12px;
+            background: rgba(88, 166, 255, 0.06);
+            border-radius: 8px;
+            animation: ai-status-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes ai-status-pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .form-select {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 13px;
+            width: 100%;
         }
 
         .ai-select {
@@ -47,243 +540,6 @@
             outline: none;
         }
         .ai-select:focus { border-color: var(--accent-green); }
-
-        .ai-round-info {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-left: auto;
-        }
-
-        .ai-stop-btn {
-            background: #da3633;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 3px 10px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-        .ai-stop-btn:hover { background: #f85149; }
-
-        .ai-chat-messages {
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .ai-chat-placeholder {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            flex: 1;
-            color: var(--text-muted);
-            text-align: center;
-        }
-        .ai-chat-placeholder h2 { font-size: 18px; margin: 8px 0 4px; color: var(--text-secondary); }
-        .ai-chat-placeholder p { font-size: 12px; }
-        .ai-chat-placeholder .placeholder-icon { font-size: 36px; }
-        .ai-chat-placeholder .placeholder-hint { font-size: 11px; margin-top: 8px; color: var(--text-muted); }
-
-        /* Message bubbles */
-        .ai-msg {
-            max-width: 90%;
-            padding: 10px 14px;
-            border-radius: 10px;
-            font-size: 13px;
-            line-height: 1.6;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }
-        .ai-msg-user {
-            align-self: flex-end;
-            background: #2a3a2a;
-            color: #e0e0e0;
-            border-bottom-right-radius: 2px;
-        }
-        .ai-msg-gemini {
-            align-self: flex-start;
-            background: #2e1a3d;
-            color: #ea80fc;
-            border-bottom-left-radius: 2px;
-        }
-        .ai-msg-claude {
-            align-self: flex-start;
-            background: #1a2e2e;
-            color: #69f0ae;
-            border-bottom-left-radius: 2px;
-        }
-        .ai-msg-error {
-            align-self: center;
-            background: #3d1a1a;
-            color: #ff5252;
-            font-size: 12px;
-            padding: 6px 12px;
-        }
-        .ai-msg-system {
-            align-self: center;
-            color: #00e676;
-            font-size: 12px;
-            font-weight: 600;
-            padding: 8px 16px;
-            background: rgba(0, 230, 118, 0.1);
-            border: 1px solid rgba(0, 230, 118, 0.3);
-            border-radius: 8px;
-            text-align: center;
-            margin: 8px 0;
-        }
-
-        .ai-msg-label {
-            font-size: 10px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            opacity: 0.7;
-        }
-        .ai-msg-gemini .ai-msg-label { color: #ea80fc; }
-        .ai-msg-claude .ai-msg-label { color: #69f0ae; }
-
-        /* Streaming cursor */
-        .ai-msg-streaming::after {
-            content: '▋';
-            animation: ai-blink 0.8s infinite;
-        }
-        @keyframes ai-blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
-        }
-
-        /* Code blocks inside AI messages */
-        .ai-msg pre {
-            background: #1a1a1a;
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 10px;
-            margin: 6px 0;
-            overflow-x: auto;
-            font-size: 12px;
-            line-height: 1.5;
-        }
-        .ai-msg code {
-            font-family: var(--font-mono, 'Roboto Mono', 'Menlo', 'Monaco', monospace);
-            font-size: 12px;
-        }
-        .ai-msg p code {
-            background: rgba(110,118,129,0.2);
-            padding: 1px 5px;
-            border-radius: 3px;
-        }
-        .ai-msg h1, .ai-msg h2, .ai-msg h3 {
-            font-size: 14px;
-            margin: 8px 0 4px;
-            color: inherit;
-        }
-        .ai-msg strong { font-weight: 700; }
-        .ai-msg ul, .ai-msg ol { padding-left: 20px; margin: 4px 0; }
-
-        /* Recommendation buttons */
-        .ai-recommendations {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            padding: 8px 4px;
-            justify-content: center;
-        }
-        .ai-rec-btn {
-            background: rgba(0, 230, 118, 0.1);
-            border: 1px solid rgba(0, 230, 118, 0.3);
-            color: #00e676;
-            border-radius: 16px;
-            padding: 5px 14px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-        .ai-rec-btn:hover {
-            background: rgba(0, 230, 118, 0.25);
-            border-color: #00e676;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0, 230, 118, 0.2);
-        }
-        .ai-rec-btn:active {
-            transform: translateY(0);
-        }
-
-        /* Message collapse/expand */
-        .ai-msg-collapsed {
-            max-height: 200px;
-            overflow: hidden;
-            position: relative;
-            -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-            mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-        }
-        .ai-msg-expand-btn {
-            background: none;
-            border: 1px solid var(--border-primary);
-            color: var(--text-muted);
-            font-size: 11px;
-            cursor: pointer;
-            padding: 3px 10px;
-            border-radius: 10px;
-            margin-top: 4px;
-            display: block;
-            width: fit-content;
-            transition: color 0.2s;
-        }
-        .ai-msg-expand-btn:hover {
-            color: var(--text-primary);
-            border-color: var(--text-muted);
-        }
-
-        /* History collapse */
-        .ai-history-collapse {
-            text-align: center;
-            padding: 6px 0;
-        }
-        .ai-history-toggle-btn {
-            background: rgba(110, 118, 129, 0.15);
-            border: 1px solid var(--border-primary);
-            color: var(--text-muted);
-            font-size: 11px;
-            cursor: pointer;
-            padding: 4px 14px;
-            border-radius: 12px;
-            transition: all 0.2s;
-        }
-        .ai-history-toggle-btn:hover {
-            background: rgba(110, 118, 129, 0.3);
-            color: var(--text-secondary);
-        }
-
-        /* AI Chat status indicator */
-        .ai-chat-status {
-            text-align: center;
-            font-size: 12px;
-            color: #58a6ff;
-            padding: 8px 12px;
-            margin: 4px 0;
-            background: rgba(88, 166, 255, 0.08);
-            border-radius: 8px;
-            animation: ai-status-pulse 1.2s ease-in-out infinite;
-        }
-        @keyframes ai-status-pulse {
-            0%, 100% { opacity: 0.5; }
-            50% { opacity: 1; }
-        }
-
-        .form-select {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 10px;
-            font-size: 13px;
-            width: 100%;
-        }
 
         /* ===== Unified Controls & Route Indicator ===== */
         .unified-controls {
@@ -310,119 +566,8 @@
         .route-badge.gemini-solo { background: rgba(224,64,251,0.15); color: #e040fb; }
         .route-badge.pipeline { background: rgba(224,64,251,0.15); color: #ea80fc; }
 
-        /* ===== Timeline Panel ===== */
-        .timeline-panel {
-            border-bottom: 1px solid var(--border-primary);
-            background: var(--bg-primary);
-            max-height: 25vh;
-            display: flex;
-            flex-direction: column;
-            transition: max-height 0.3s ease;
-        }
-        .timeline-panel.collapsed {
-            max-height: 32px;
-            overflow: hidden;
-        }
-        .timeline-panel.collapsed .timeline-entries {
-            display: none;
-        }
-        .timeline-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 10px;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            min-height: 28px;
-        }
-        .timeline-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            flex: 1;
-        }
-        .timeline-toggle-btn, .timeline-clear-btn {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 11px;
-            padding: 2px 4px;
-        }
-        .timeline-toggle-btn:hover, .timeline-clear-btn:hover {
-            color: var(--text-primary);
-        }
-        .timeline-entries {
-            overflow-y: auto;
-            flex: 1;
-            padding: 4px 0;
-        }
-        .timeline-entry {
-            padding: 6px 12px;
-            border-left: 3px solid transparent;
-            font-size: 12px;
-            line-height: 1.5;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }
-        .timeline-entry.user {
-            background: #2a2a2a;
-            border-left-color: #666;
-        }
-        .timeline-entry.gemini-design {
-            border-left-color: #4285f4;
-        }
-        .timeline-entry.claude-execution {
-            border-left-color: #00c853;
-        }
-        .timeline-entry.route-info {
-            font-size: 10px;
-            color: var(--text-muted);
-            padding: 3px 12px;
-            border-left-color: transparent;
-        }
-        .timeline-entry.error {
-            border-left-color: #ff4444;
-            color: #f85149;
-        }
-        .timeline-entry-label {
-            font-size: 10px;
-            font-weight: 600;
-            margin-bottom: 2px;
-            opacity: 0.7;
-        }
-        .timeline-entry.gemini-design .timeline-entry-label { color: #ea80fc; }
-        .timeline-entry.claude-execution .timeline-entry-label { color: #00e676; }
-        .timeline-entry.user .timeline-entry-label { color: #8b949e; }
-
-        /* Inline route badge inside user entries */
-        .timeline-route-badge {
-            font-size: 9px;
-            color: var(--text-muted);
-            margin-top: 3px;
-            opacity: 0.5;
-        }
-
-        /* Streaming cursor in timeline */
-        .timeline-entry.streaming .timeline-entry-body::after {
-            content: '▋';
-            animation: ai-blink 0.8s infinite;
-        }
-
-        /* Code blocks in timeline */
-        .timeline-entry pre {
-            background: #1a1a1a;
-            border: 1px solid var(--border-primary);
-            border-radius: 4px;
-            padding: 6px 8px;
-            margin: 4px 0;
-            overflow-x: auto;
-            font-size: 11px;
-        }
-        .timeline-entry code {
-            font-family: var(--font-mono, 'Roboto Mono', 'Menlo', 'Monaco', monospace);
-            font-size: 11px;
-        }
+        /* ===== Timeline Panel (hidden) ===== */
+        .timeline-panel { display: none; }
     </style>
 </head>
 <body>
@@ -497,8 +642,8 @@
                 </div>
             </div>
 
-            <!-- Timeline Panel (AI Pipeline output — always visible) -->
-            <div id="timeline-panel" class="timeline-panel collapsed">
+            <!-- Timeline Panel (hidden — no longer shown in UI) -->
+            <div id="timeline-panel" class="timeline-panel collapsed" style="display:none;">
                 <div class="timeline-header">
                     <span class="timeline-title">AI Pipeline</span>
                     <span class="ai-stop-btn" id="pipelineStopBtn" onclick="stopPipeline()" style="display:none;">⏹ Stop</span>
@@ -522,37 +667,74 @@
 
             <!-- AI Chat Container (toggled with terminal) -->
             <div id="ai-chat-container" style="display:none;">
-                <div class="ai-chat-controls">
-                    <select class="ai-select" id="aiDebateMode" title="Conversation mode">
-                        <option value="collab">Collab (협업)</option>
-                        <option value="debate">Debate (토론)</option>
-                        <option value="review">Review (리뷰)</option>
-                    </select>
-                    <select class="ai-select" id="aiAiMode" title="AI participants">
-                        <option value="dual">Dual (Claude+Gemini)</option>
-                        <option value="claude-solo">Claude Solo</option>
-                        <option value="gemini-solo">Gemini Solo</option>
-                    </select>
-                    <select class="ai-select" id="aiOperationType" title="Operation type">
-                        <option value="development" selected>💻 개발</option>
-                        <option value="modification">🔧 수정</option>
-                        <option value="verification">✅ 검증</option>
-                        <option value="enhancement">🚀 고도화</option>
-                        <option value="design-change">🎨 디자인변경</option>
-                        <option value="security-audit">🔒 보안검증</option>
-                        <option value="automation">⚙️ 자동화</option>
-                    </select>
-                    <div class="ai-round-info" id="aiRoundInfo"></div>
-                    <button class="ai-stop-btn" id="aiStopBtn" onclick="stopAiChat()" style="display:none;">⏹ Stop</button>
+                <!-- Header -->
+                <div class="ai-chat-header">
+                    <div class="ai-chat-header-left">
+                        <button class="ai-chat-back-btn" onclick="toggleAiChat()" title="Back to Terminal">←</button>
+                        <span class="ai-chat-project-icon">🔮</span>
+                        <span class="ai-chat-project-name" id="aiChatProjectName">Project</span>
+                        <span class="ai-chat-separator">/</span>
+                        <select class="ai-chat-operation-select" id="aiOperationType" title="Operation type">
+                            <option value="development" selected>개발</option>
+                            <option value="modification">수정</option>
+                            <option value="verification">검증</option>
+                            <option value="enhancement">고도화</option>
+                            <option value="design-change">디자인변경</option>
+                            <option value="security-audit">보안검증</option>
+                            <option value="automation">자동화</option>
+                        </select>
+                    </div>
+                    <div class="ai-chat-header-center">
+                        <div class="ai-mode-tabs" id="aiModeTabs">
+                            <button class="ai-mode-tab active" data-mode="dual" onclick="setAiModeTab('dual')">Dual AI</button>
+                            <button class="ai-mode-tab" data-mode="claude-solo" onclick="setAiModeTab('claude-solo')">Claude</button>
+                            <button class="ai-mode-tab" data-mode="gemini-solo" onclick="setAiModeTab('gemini-solo')">Gemini</button>
+                        </div>
+                    </div>
+                    <div class="ai-chat-header-right">
+                        <select class="ai-chat-mode-select" id="aiDebateMode" title="Conversation mode">
+                            <option value="collab">Collab (협업)</option>
+                            <option value="debate">Debate (토론)</option>
+                            <option value="review">Review (리뷰)</option>
+                        </select>
+                    </div>
                 </div>
+
+                <!-- Messages -->
                 <div class="ai-chat-messages" id="aiChatMessages">
                     <div class="ai-chat-placeholder">
                         <div class="placeholder-icon">🤖</div>
                         <h2>AI Chat</h2>
-                        <p>Claude (시니어 풀스텍 개발자) + Gemini (시니어 디자이너) 듀얼 AI 채팅</p>
+                        <p>Claude + Gemini 듀얼 AI 채팅</p>
                         <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
                     </div>
                 </div>
+
+                <!-- Status Bar -->
+                <div class="ai-chat-statusbar" id="aiChatStatusBar" style="display:none;">
+                    <div class="ai-statusbar-left">
+                        <span class="ai-status-dot"></span>
+                        <span class="ai-status-text" id="aiStatusText"></span>
+                    </div>
+                    <div class="ai-statusbar-right">
+                        <span id="aiStatusRound"></span>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="ai-chat-input-area">
+                    <button class="ai-input-attach-btn" onclick="selectImageFile()" title="Attach files">📎</button>
+                    <textarea id="aiChatTextarea" placeholder="메시지를 입력하세요..." rows="1"></textarea>
+                    <button class="ai-input-send-btn" id="aiChatSendBtn" onclick="handleAiSend()">Send</button>
+                    <button class="ai-input-stop-btn" id="aiChatStopBtn" onclick="stopAiChat()" style="display:none;">Stop</button>
+                </div>
+
+                <!-- Hidden select for backward compat -->
+                <select id="aiAiMode" style="display:none;">
+                    <option value="dual" selected>Dual</option>
+                    <option value="claude-solo">Claude Solo</option>
+                    <option value="gemini-solo">Gemini Solo</option>
+                </select>
             </div>
 
             <!-- Prompt Area (below terminal) -->
@@ -1029,6 +1211,98 @@ You MUST: 1) Read the actual code. 2) Fix the root cause completely. 3) Check re
             </div>
         </div>
     </div>
+
+    <!-- Update Notification Banner -->
+    <div id="update-banner" style="
+        display: none;
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: linear-gradient(135deg, #161b22 0%, #1c2333 100%);
+        border: 1px solid #30363d;
+        border-radius: 16px;
+        padding: 0;
+        z-index: 10000;
+        width: 380px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        font-family: var(--font-ui, 'Inter', sans-serif);
+        animation: slideUp 0.35s ease-out;
+        overflow: hidden;
+    ">
+        <!-- Header -->
+        <div style="padding: 16px 20px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 8px; height: 8px; background: #f0883e; border-radius: 50%; animation: pulse 2s infinite;"></div>
+                    <span style="font-size: 13px; font-weight: 600; color: #f0883e;">업데이트 알림</span>
+                </div>
+                <span id="update-version-badge" style="font-size: 11px; color: #8b949e; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 10px;"></span>
+            </div>
+            <div style="margin-top: 8px; font-size: 15px; font-weight: 700; color: #e6edf3;">
+                새로운 업데이트가 있습니다
+            </div>
+            <div style="margin-top: 4px; font-size: 12px; color: #8b949e;">
+                업데이트하시겠습니까?
+            </div>
+        </div>
+
+        <!-- Release Notes -->
+        <div id="update-notes-section" style="padding: 12px 20px; display: none;">
+            <div style="font-size: 11px; font-weight: 600; color: #58a6ff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">업데이트된 기능</div>
+            <div id="update-notes-list" style="font-size: 12px; color: #c9d1d9; line-height: 1.6;"></div>
+        </div>
+
+        <!-- Footer message -->
+        <div style="padding: 0 20px 4px; font-size: 11px; color: #6e7681; font-style: italic;">
+            더욱 더 많은 기능을 활용해보세요
+        </div>
+
+        <!-- Progress bar -->
+        <div id="update-progress-bar" style="display: none; padding: 8px 20px 4px;">
+            <div style="background: #21262d; border-radius: 4px; height: 6px; overflow: hidden;">
+                <div id="update-progress-fill" style="background: linear-gradient(90deg, #58a6ff, #3fb950); height: 100%; width: 0%; transition: width 0.3s; border-radius: 4px;"></div>
+            </div>
+            <div id="update-progress-text" style="font-size: 11px; color: #8b949e; margin-top: 4px; text-align: center;"></div>
+        </div>
+
+        <!-- Actions -->
+        <div id="update-actions" style="padding: 12px 20px 16px; display: flex; gap: 8px;">
+            <button id="update-action-btn" onclick="onUpdateAction()" style="
+                flex: 1;
+                background: linear-gradient(135deg, #238636, #2ea043);
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 16px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            ">업데이트</button>
+            <button onclick="dismissUpdateBanner()" style="
+                background: rgba(255,255,255,0.04);
+                color: #8b949e;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                padding: 10px 16px;
+                font-size: 13px;
+                cursor: pointer;
+                transition: all 0.2s;
+            ">나중에</button>
+        </div>
+    </div>
+    <style>
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        #update-action-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        #update-banner button:last-child:hover { background: rgba(255,255,255,0.08); color: #e6edf3; }
+    </style>
 
     <script src="renderer-fixed.js"></script>
 </body>

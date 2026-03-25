@@ -1,6 +1,6 @@
 {
   "name": "claude-cli-terminal",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "멀티 프로젝트 Claude CLI 터미널 - 시스템에 설치된 claude 명령어를 터미널 에뮬레이터로 구동",
   "main": "main.js",
   "scripts": {
@@ -23,8 +23,17 @@
     "directories": {
       "output": "dist"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "effecdi",
+      "repo": "auto-teminel"
+    },
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "target": "nsis"
@@ -41,6 +50,7 @@
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^16.4.5",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "express": "^4.21.0",
     "node-pty": "^1.0.0",
     "ws": "^8.17.0",

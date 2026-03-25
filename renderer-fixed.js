@@ -499,6 +499,7 @@ async function selectProject(projectId) {
     renderProjects();
     renderProjectInfo();
     updateInfoPanel(currentProject);
+    updateAiChatHeader();
 
     const entry = await getOrCreateTerminal(currentProject);
     showTerminal(projectId);
@@ -2507,8 +2508,10 @@ function toggleAiChat() {
     const unifiedControls = document.querySelector('.unified-controls');
     const toolbarSep = document.getElementById('terminalToolbarSep');
 
+    const contentHeader = document.querySelector('.content-header');
+
     if (aiChatMode) {
-        // Show AI Chat, hide Terminal + Timeline + route controls
+        // Show AI Chat, hide Terminal + route controls + header
         if (terminalContainer) terminalContainer.style.display = 'none';
         if (timelinePanel) timelinePanel.style.display = 'none';
         if (aiChatContainer) aiChatContainer.style.display = 'flex';
@@ -2516,18 +2519,46 @@ function toggleAiChat() {
         if (unifiedControls) unifiedControls.style.display = 'none';
         if (toolbarSep) toolbarSep.style.display = 'none';
         if (aiChatBtn) aiChatBtn.classList.add('active');
+        if (contentHeader) contentHeader.style.display = 'none';
+
+        // Hide terminal-specific UI elements
+        const promptArea = document.querySelector('.prompt-area');
+        if (promptArea) promptArea.style.display = 'none';
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar) queueBar.dataset.hiddenByChat = queueBar.style.display !== 'none' ? '1' : '';
+        if (queueBar) queueBar.style.display = 'none';
+        const imgBar = document.getElementById('imagePreviewBar');
+        if (imgBar) imgBar.dataset.hiddenByChat = imgBar.style.display !== 'none' ? '1' : '';
+        if (imgBar) imgBar.style.display = 'none';
+
+        // Update AI chat header with current project info
+        updateAiChatHeader();
 
         // Render messages for current project
         renderAiChatMessages();
+
+        // Focus AI textarea
+        setTimeout(() => {
+            const aiTextarea = document.getElementById('aiChatTextarea');
+            if (aiTextarea) aiTextarea.focus();
+        }, 100);
     } else {
-        // Show Terminal + Timeline + route controls, hide AI Chat
+        // Show Terminal + route controls + header, hide AI Chat
         if (terminalContainer) terminalContainer.style.display = '';
-        if (timelinePanel) timelinePanel.style.display = '';
         if (aiChatContainer) aiChatContainer.style.display = 'none';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
         if (unifiedControls) unifiedControls.style.display = '';
         if (toolbarSep) toolbarSep.style.display = '';
         if (aiChatBtn) aiChatBtn.classList.remove('active');
+        if (contentHeader) contentHeader.style.display = '';
+
+        // Show terminal-specific UI elements
+        const promptArea = document.querySelector('.prompt-area');
+        if (promptArea) promptArea.style.display = '';
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar && queueBar.dataset.hiddenByChat === '1') queueBar.style.display = '';
+        const imgBar = document.getElementById('imagePreviewBar');
+        if (imgBar && imgBar.dataset.hiddenByChat === '1') imgBar.style.display = '';
 
         // Re-fit terminal
         if (currentProject) {
@@ -2538,7 +2569,8 @@ function toggleAiChat() {
 }
 
 async function sendAiMessage() {
-    const textarea = document.getElementById('taskInput');
+    // Use AI chat textarea if available, fallback to task input
+    const textarea = document.getElementById('aiChatTextarea') || document.getElementById('taskInput');
     if (!textarea) return;
     const text = textarea.value.trim();
     if (!text) return;
@@ -2561,28 +2593,14 @@ async function sendAiMessage() {
     aiChatMessages.get(projectId).push({ role: 'user', content: text, timestamp: Date.now() });
     appendAiMessage('user', text);
 
-    // Show immediate "(대화중이에요...)" status before AI responds
-    const roundInfo = document.getElementById('aiRoundInfo');
-    if (roundInfo) {
-        roundInfo.textContent = '💭 대화중이에요...';
-        roundInfo.style.color = '#58a6ff';
-    }
-    // Show status indicator in chat area immediately
-    const chatContainer = document.getElementById('aiChatMessages');
-    if (chatContainer) {
-        let statusEl = document.getElementById('aiChatStatus');
-        if (!statusEl) {
-            statusEl = document.createElement('div');
-            statusEl.id = 'aiChatStatus';
-            statusEl.className = 'ai-chat-status';
-            chatContainer.appendChild(statusEl);
-        }
-        statusEl.textContent = '💭 대화중이에요... AI가 응답을 준비하고 있습니다';
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
-    // Show stop button
-    const stopBtn = document.getElementById('aiStopBtn');
+    // Show status bar
+    showAiStatusBar('AI가 응답을 준비하고 있습니다...', '');
+
+    // Show stop button, hide send button
+    const stopBtn = document.getElementById('aiChatStopBtn');
+    const sendBtn = document.getElementById('aiChatSendBtn');
     if (stopBtn) stopBtn.style.display = '';
+    if (sendBtn) sendBtn.style.display = 'none';
 
     // Get mode settings from selects
     const debateMode = document.getElementById('aiDebateMode').value;
@@ -2605,16 +2623,68 @@ async function sendAiMessage() {
                 projectName: currentProject.name,
             });
         } else {
-            // Continue existing conversation
-            await ipcRenderer.invoke('ai.continue', { projectId, message: text });
+            // Continue existing conversation — pass project context every time
+            await ipcRenderer.invoke('ai.continue', {
+                projectId,
+                message: text,
+                mode: debateMode,
+                aiMode: aiMode,
+                operationType: operationType || undefined,
+                projectPath: currentProject.path,
+                projectName: currentProject.name,
+            });
         }
     } catch (err) {
         appendAiMessage('error', `Error: ${err.message}`);
-        // Clear status on error
-        if (roundInfo) { roundInfo.textContent = ''; roundInfo.style.color = ''; }
-        const errStatusEl = document.getElementById('aiChatStatus');
-        if (errStatusEl) errStatusEl.remove();
+        hideAiStatusBar();
     }
+}
+
+/** Handle send from AI Chat input area */
+function handleAiSend() {
+    sendAiMessage();
+}
+
+/** Show AI status bar */
+function showAiStatusBar(text, roundText) {
+    const bar = document.getElementById('aiChatStatusBar');
+    const textEl = document.getElementById('aiStatusText');
+    const roundEl = document.getElementById('aiStatusRound');
+    if (bar) bar.style.display = '';
+    if (textEl) textEl.textContent = text;
+    if (roundEl) roundEl.textContent = roundText || '';
+}
+
+/** Hide AI status bar */
+function hideAiStatusBar() {
+    const bar = document.getElementById('aiChatStatusBar');
+    if (bar) bar.style.display = 'none';
+    // Restore send/stop buttons
+    const stopBtn = document.getElementById('aiChatStopBtn');
+    const sendBtn = document.getElementById('aiChatSendBtn');
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (sendBtn) sendBtn.style.display = '';
+}
+
+/** Update AI chat header with current project info */
+function updateAiChatHeader() {
+    const nameEl = document.getElementById('aiChatProjectName');
+    if (nameEl && currentProject) {
+        nameEl.textContent = currentProject.name || 'Project';
+    }
+}
+
+/** Set AI mode via tab buttons */
+function setAiModeTab(mode) {
+    // Update hidden select
+    const select = document.getElementById('aiAiMode');
+    if (select) select.value = mode;
+
+    // Update tab styling
+    const tabs = document.querySelectorAll('.ai-mode-tab');
+    tabs.forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
 }
 
 function stopAiChat() {
@@ -2628,13 +2698,13 @@ function renderAiChatMessages() {
     container.innerHTML = '';
 
     if (!currentProject) {
-        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Select a project first</p></div>';
+        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>프로젝트를 먼저 선택하세요</p></div>';
         return;
     }
 
     const messages = aiChatMessages.get(currentProject.id);
     if (!messages || messages.length === 0) {
-        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Claude (시니어 풀스텍 개발자) + Gemini (시니어 디자이너) 듀얼 AI 채팅</p><div class="placeholder-hint">아래에 메시지를 입력하세요</div></div>';
+        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Claude + Gemini 듀얼 AI 채팅</p><div class="placeholder-hint">아래에 메시지를 입력하세요</div></div>';
         return;
     }
 
@@ -2712,24 +2782,50 @@ function appendAiMessageDom(container, role, content) {
     div.className = `ai-msg ai-msg-${role}`;
 
     if (role === 'gemini' || role === 'claude') {
-        const label = document.createElement('div');
-        label.className = 'ai-msg-label';
-        label.textContent = role === 'gemini' ? 'Gemini (시니어 디자이너)' : 'Claude (시니어 풀스텍 개발자)';
-        div.appendChild(label);
-    }
+        // Header with avatar, name, role badge
+        const header = document.createElement('div');
+        header.className = 'ai-msg-header';
 
-    const body = document.createElement('div');
-    body.className = 'ai-msg-body';
-    if (role === 'error') {
-        body.textContent = content;
-    } else {
+        const avatar = document.createElement('span');
+        avatar.className = 'ai-msg-avatar';
+        avatar.textContent = role === 'gemini' ? '💎' : '🤖';
+        header.appendChild(avatar);
+
+        const name = document.createElement('span');
+        name.className = 'ai-msg-name';
+        name.textContent = role === 'gemini' ? 'Gemini' : 'Claude';
+        header.appendChild(name);
+
+        const roleBadge = document.createElement('span');
+        roleBadge.className = 'ai-msg-role';
+        roleBadge.textContent = role === 'gemini' ? 'Designer' : 'Developer';
+        header.appendChild(roleBadge);
+
+        div.appendChild(header);
+
+        // Bubble with content
+        const bubble = document.createElement('div');
+        bubble.className = 'ai-msg-bubble ai-msg-body';
+        bubble.innerHTML = renderAiMarkdown(content);
+        div.appendChild(bubble);
+
+        // Apply collapse for long messages
+        applyMessageCollapse(div, bubble, content);
+    } else if (role === 'user') {
+        const body = document.createElement('div');
+        body.className = 'ai-msg-body';
         body.innerHTML = renderAiMarkdown(content);
-    }
-    div.appendChild(body);
-
-    // Apply collapse for long messages in history render
-    if (role !== 'error' && role !== 'system') {
-        applyMessageCollapse(div, body, content);
+        div.appendChild(body);
+    } else {
+        // error, system
+        const body = document.createElement('div');
+        body.className = 'ai-msg-body';
+        if (role === 'error') {
+            body.textContent = content;
+        } else {
+            body.innerHTML = renderAiMarkdown(content);
+        }
+        div.appendChild(body);
     }
 
     container.appendChild(div);
@@ -2744,16 +2840,42 @@ function startStreamingMessage(role) {
     const placeholder = container.querySelector('.ai-chat-placeholder');
     if (placeholder) placeholder.remove();
 
+    // Remove status indicator
+    const statusEl = document.getElementById('aiChatStatus');
+    if (statusEl) statusEl.remove();
+
     const div = document.createElement('div');
     div.className = `ai-msg ai-msg-${role} ai-msg-streaming`;
 
-    const label = document.createElement('div');
-    label.className = 'ai-msg-label';
-    label.textContent = role === 'gemini' ? 'Gemini (시니어 디자이너)' : 'Claude (시니어 풀스텍 개발자)';
-    div.appendChild(label);
+    // Header with avatar, name, role badge, typing indicator
+    const header = document.createElement('div');
+    header.className = 'ai-msg-header';
 
+    const avatar = document.createElement('span');
+    avatar.className = 'ai-msg-avatar';
+    avatar.textContent = role === 'gemini' ? '💎' : '🤖';
+    header.appendChild(avatar);
+
+    const name = document.createElement('span');
+    name.className = 'ai-msg-name';
+    name.textContent = role === 'gemini' ? 'Gemini' : 'Claude';
+    header.appendChild(name);
+
+    const roleBadge = document.createElement('span');
+    roleBadge.className = 'ai-msg-role';
+    roleBadge.textContent = role === 'gemini' ? 'Designer' : 'Developer';
+    header.appendChild(roleBadge);
+
+    const typingInd = document.createElement('span');
+    typingInd.className = 'ai-msg-typing-indicator';
+    typingInd.innerHTML = '<span class="typing-dot"></span> typing';
+    header.appendChild(typingInd);
+
+    div.appendChild(header);
+
+    // Bubble for content
     const body = document.createElement('div');
-    body.className = 'ai-msg-body';
+    body.className = 'ai-msg-bubble ai-msg-body';
     div.appendChild(body);
 
     container.appendChild(div);
@@ -2790,7 +2912,7 @@ function createRecommendationButtons() {
         btn.className = 'ai-rec-btn';
         btn.textContent = label;
         btn.addEventListener('click', () => {
-            const textarea = document.getElementById('taskInput');
+            const textarea = document.getElementById('aiChatTextarea') || document.getElementById('taskInput');
             if (textarea) {
                 textarea.value = label;
                 sendAiMessage();
@@ -2814,6 +2936,10 @@ function finalizeStreamMessage(fullText) {
     const { role, div, body } = aiChatStreaming;
     div.classList.remove('ai-msg-streaming');
     body.innerHTML = renderAiMarkdown(fullText);
+
+    // Remove typing indicator
+    const typingInd = div.querySelector('.ai-msg-typing-indicator');
+    if (typingInd) typingInd.remove();
 
     // Apply collapse for long messages
     applyMessageCollapse(div, body, fullText);
@@ -2954,14 +3080,19 @@ ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
     if (!currentProject || currentProject.id !== projectId) return;
 
     if (aiChatMode) {
-        // Show round info in chat
-        appendAiMessage('system', `--- Round ${round}/${maxRounds} ---`);
-        // Show stop button
-        const stopBtn = document.getElementById('aiStopBtn');
+        if (maxRounds > 1) {
+            appendAiMessage('system', `--- Round ${round}/${maxRounds} ---`);
+        }
+        // Show stop button, hide send button
+        const stopBtn = document.getElementById('aiChatStopBtn');
+        const sendBtn = document.getElementById('aiChatSendBtn');
         if (stopBtn) stopBtn.style.display = '';
-    } else {
-        const title = document.querySelector('.timeline-title');
-        if (title) title.textContent = `AI Pipeline — Round ${round}/${maxRounds}`;
+        if (sendBtn) sendBtn.style.display = 'none';
+
+        // Update status bar
+        const debateMode = document.getElementById('aiDebateMode');
+        const modeLabel = debateMode ? debateMode.options[debateMode.selectedIndex].text : '';
+        showAiStatusBar(`AI가 생각하는 중... | ${modeLabel}`, `Round ${round}/${maxRounds}`);
     }
 });
 
@@ -2973,27 +3104,12 @@ ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
         if (aiChatStreaming) {
             finalizeStreamMessage(aiChatStreaming.text);
         }
-        // Hide stop button
-        const stopBtn = document.getElementById('aiStopBtn');
-        if (stopBtn) stopBtn.style.display = 'none';
-        // Show "대화 완료, 코드 적용 대기" in roundInfo (executionQueued will override)
-        const roundInfo = document.getElementById('aiRoundInfo');
-        if (roundInfo) {
-            roundInfo.textContent = '⏳ 코드 적용 준비 중...';
-            roundInfo.style.color = '#d29922';
-        }
+        // Restore send/stop buttons
+        hideAiStatusBar();
         // Remove status indicator
         const statusEl = document.getElementById('aiChatStatus');
         if (statusEl) statusEl.remove();
     } else {
-        // Reset timeline title
-        const title = document.querySelector('.timeline-title');
-        if (title) title.textContent = 'AI Pipeline';
-
-        // Hide pipeline stop button
-        const pipelineStopBtn = document.getElementById('pipelineStopBtn');
-        if (pipelineStopBtn) pipelineStopBtn.style.display = 'none';
-
         // Finalize any remaining timeline stream
         if (timelineStreaming) {
             finalizeTimelineStreaming();
@@ -3004,13 +3120,8 @@ ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
 ipcRenderer.on('ai.executionQueued', (event, { projectId, mode }) => {
     if (!currentProject || currentProject.id !== projectId) return;
     if (aiChatMode) {
-        appendAiMessage('system', `🔄 ${mode || '협업'} 완료 → 터미널에서 코드 적용 시작! (터미널 탭에서 실시간 확인 가능)`);
-        // roundInfo에도 실행 상태 표시
-        const roundInfo = document.getElementById('aiRoundInfo');
-        if (roundInfo) {
-            roundInfo.textContent = '⚡ 터미널에서 코드 적용 중...';
-            roundInfo.style.color = '#3fb950';
-        }
+        appendAiMessage('system', `${mode || '협업'} 완료 → 터미널에서 코드 적용 시작!`);
+        showAiStatusBar('터미널에서 코드 적용 중...', '');
     }
 });
 
@@ -3031,17 +3142,10 @@ ipcRenderer.on('terminal.idle', (event, { projectId }) => {
 
     // 2) AI Chat notification (only for current project in AI chat mode)
     if (currentProject && currentProject.id === projectId && aiChatMode) {
-        const roundInfo = document.getElementById('aiRoundInfo');
-        if (roundInfo && roundInfo.textContent.includes('터미널')) {
-            roundInfo.textContent = '✅ 코드 적용 완료!';
-            roundInfo.style.color = '#3fb950';
-            appendAiMessage('system', '✅ 터미널 실행 완료 — 코드가 프로젝트에 적용되었습니다.');
-            setTimeout(() => {
-                if (roundInfo) {
-                    roundInfo.textContent = '';
-                    roundInfo.style.color = '';
-                }
-            }, 5000);
+        const statusText = document.getElementById('aiStatusText');
+        if (statusText && statusText.textContent.includes('터미널')) {
+            appendAiMessage('system', '터미널 실행 완료 — 코드가 프로젝트에 적용되었습니다.');
+            setTimeout(() => hideAiStatusBar(), 3000);
         }
     }
 });
@@ -3052,6 +3156,7 @@ ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
     if (aiChatMode) {
         if (aiChatStreaming) finalizeStreamMessage(aiChatStreaming.text);
         appendAiMessage('error', `[${source || 'AI'}] ${message}`);
+        hideAiStatusBar();
     } else {
         if (timelineStreaming) finalizeTimelineStreaming();
         appendTimelineEntry('error', `[${source || 'AI'}] ${message}`);
@@ -3061,28 +3166,17 @@ ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
 ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
     if (!currentProject || currentProject.id !== projectId) return;
     if (aiChatMode) {
-        // Show status in AI chat round info area
-        const roundInfo = document.getElementById('aiRoundInfo');
-        if (roundInfo) roundInfo.textContent = status;
+        // Update status bar text
+        const textEl = document.getElementById('aiStatusText');
+        if (textEl) textEl.textContent = status;
+        const bar = document.getElementById('aiChatStatusBar');
+        if (bar) bar.style.display = '';
+
         // Show stop button while AI is active
-        const stopBtn = document.getElementById('aiStopBtn');
+        const stopBtn = document.getElementById('aiChatStopBtn');
+        const sendBtn = document.getElementById('aiChatSendBtn');
         if (stopBtn) stopBtn.style.display = '';
-        // Show status indicator in chat area
-        let statusEl = document.getElementById('aiChatStatus');
-        const container = document.getElementById('aiChatMessages');
-        if (container) {
-            if (!statusEl) {
-                statusEl = document.createElement('div');
-                statusEl.id = 'aiChatStatus';
-                statusEl.className = 'ai-chat-status';
-                container.appendChild(statusEl);
-            }
-            statusEl.textContent = status;
-            container.scrollTop = container.scrollHeight;
-        }
-    } else {
-        const title = document.querySelector('.timeline-title');
-        if (title) title.textContent = `AI Pipeline — ${status}`;
+        if (sendBtn) sendBtn.style.display = 'none';
     }
 });
 
@@ -3122,6 +3216,25 @@ function setupTaskInputShortcut() {
 
     textarea.addEventListener('focus', () => console.log('[textarea] focused'));
     textarea.addEventListener('blur', () => console.log('[textarea] blurred'));
+
+    // Setup AI Chat textarea
+    const aiTextarea = document.getElementById('aiChatTextarea');
+    if (aiTextarea) {
+        aiTextarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && e.keyCode !== 229) {
+                e.preventDefault();
+                sendAiMessage();
+            }
+        });
+        aiTextarea.addEventListener('input', (e) => {
+            aiTextarea.style.height = 'auto';
+            aiTextarea.style.height = Math.min(aiTextarea.scrollHeight, 120) + 'px';
+            if (e.inputType === 'insertLineBreak') {
+                aiTextarea.value = aiTextarea.value.replace(/\n+$/, '');
+                sendAiMessage();
+            }
+        });
+    }
 }
 
 /** Wrapper for send button — routes to AI chat or task based on mode. */
@@ -3502,6 +3615,103 @@ ipcRenderer.on('healthCheck.completed', (event, { summary, results }) => {
 ipcRenderer.on('schedule.executed', (event, { scheduleName, projectId, timestamp }) => {
     const project = projects.find(p => p.id === projectId);
     addActivity('info', `Schedule "${scheduleName}" executed (${project ? project.name : projectId})`);
+});
+
+// ===================================================================
+//  Auto-Updater UI
+// ===================================================================
+
+let updateState = 'idle'; // idle | available | downloading | downloaded
+
+function showUpdateBanner(releaseNotes) {
+    const banner = document.getElementById('update-banner');
+    if (!banner) return;
+
+    // Release notes
+    const notesSection = document.getElementById('update-notes-section');
+    const notesList = document.getElementById('update-notes-list');
+    if (releaseNotes && notesSection && notesList) {
+        // Parse release notes — support markdown bullet points or plain text
+        let html = '';
+        const lines = (typeof releaseNotes === 'string' ? releaseNotes : '').split('\n').filter(l => l.trim());
+        if (lines.length > 0) {
+            html = '<ul style="margin:0; padding-left: 16px; list-style: none;">';
+            for (const line of lines.slice(0, 6)) {
+                const text = line.replace(/^[\-\*]\s*/, '').trim();
+                if (text) html += `<li style="margin-bottom: 4px;">  ${text}</li>`;
+            }
+            html += '</ul>';
+        }
+        if (html) {
+            notesList.innerHTML = html;
+            notesSection.style.display = '';
+        } else {
+            notesSection.style.display = 'none';
+        }
+    }
+
+    banner.style.display = '';
+}
+
+function dismissUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    if (banner) banner.style.display = 'none';
+}
+
+function onUpdateAction() {
+    if (updateState === 'available') {
+        updateState = 'downloading';
+        ipcRenderer.invoke('updater.download');
+        // Switch to downloading state
+        const actionBtn = document.getElementById('update-action-btn');
+        const progressBar = document.getElementById('update-progress-bar');
+        const actions = document.getElementById('update-actions');
+        if (actionBtn) { actionBtn.textContent = '다운로드 중...'; actionBtn.disabled = true; actionBtn.style.opacity = '0.7'; }
+        if (progressBar) progressBar.style.display = '';
+    } else if (updateState === 'downloaded') {
+        ipcRenderer.invoke('updater.install');
+    }
+}
+
+ipcRenderer.on('updater.available', (event, { version, releaseNotes }) => {
+    updateState = 'available';
+    const badge = document.getElementById('update-version-badge');
+    if (badge) badge.textContent = `v${version}`;
+    const actionBtn = document.getElementById('update-action-btn');
+    if (actionBtn) { actionBtn.textContent = '업데이트'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    document.getElementById('update-progress-bar').style.display = 'none';
+    showUpdateBanner(releaseNotes);
+});
+
+ipcRenderer.on('updater.not-available', () => {
+    // silent
+});
+
+ipcRenderer.on('updater.progress', (event, { percent, transferred, total }) => {
+    const fill = document.getElementById('update-progress-fill');
+    const text = document.getElementById('update-progress-text');
+    if (fill) fill.style.width = `${Math.round(percent)}%`;
+    if (text) {
+        const mb = (n) => (n / 1024 / 1024).toFixed(1);
+        text.textContent = `${mb(transferred)} / ${mb(total)} MB  (${Math.round(percent)}%)`;
+    }
+});
+
+ipcRenderer.on('updater.downloaded', (event, { version }) => {
+    updateState = 'downloaded';
+    const actionBtn = document.getElementById('update-action-btn');
+    const progressBar = document.getElementById('update-progress-bar');
+    if (actionBtn) { actionBtn.textContent = '지금 재시작'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    if (progressBar) progressBar.style.display = 'none';
+});
+
+ipcRenderer.on('updater.error', (event, { message }) => {
+    if (updateState === 'downloading') {
+        const actionBtn = document.getElementById('update-action-btn');
+        if (actionBtn) { actionBtn.textContent = '업데이트 실패'; actionBtn.disabled = true; }
+        setTimeout(dismissUpdateBanner, 5000);
+    }
+    updateState = 'idle';
 });
 
 // ===================================================================

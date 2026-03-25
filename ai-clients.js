@@ -58,7 +58,11 @@ function streamClaude(history, callbacks, options) {
     for (const p of extraPaths) pathSet.add(p);
     cleanEnv.PATH = [...pathSet].join(':');
 
+    // Set cwd to project path so Claude CLI has actual file access
+    const cwd = (options && options.projectPath) || process.cwd();
+
     const proc = spawn('claude', ['-p', '--output-format', 'stream-json', '--verbose'], {
+        cwd,
         env: {
             ...cleanEnv,
             ANTHROPIC_API_KEY: '',
@@ -200,17 +204,110 @@ function toGeminiHistory(messages) {
     return mapped;
 }
 
+// ===================================================================
+//  Gemini File Tools — function calling for real file access
+// ===================================================================
+
+const GEMINI_FILE_TOOLS = [{
+    functionDeclarations: [
+        {
+            name: 'readFile',
+            description: 'Read a file from the project. Returns file content as text.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filePath: { type: 'string', description: 'File path relative to project root (e.g. "src/App.tsx", "package.json")' }
+                },
+                required: ['filePath']
+            }
+        },
+        {
+            name: 'writeFile',
+            description: 'Write/overwrite a file in the project. Creates parent directories if needed.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filePath: { type: 'string', description: 'File path relative to project root' },
+                    content: { type: 'string', description: 'Full file content to write' }
+                },
+                required: ['filePath', 'content']
+            }
+        },
+        {
+            name: 'listFiles',
+            description: 'List files and directories in a project directory.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    dirPath: { type: 'string', description: 'Directory path relative to project root. Use "." for project root.' }
+                },
+                required: ['dirPath']
+            }
+        },
+    ]
+}];
+
+const GEMINI_LIST_SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', '__pycache__', '.venv', 'coverage']);
+
+function executeGeminiTool(name, args, projectPath) {
+    const fs = require('fs');
+    const safePath = (rel) => {
+        const resolved = path.resolve(projectPath, rel);
+        // Prevent path traversal outside project
+        if (!resolved.startsWith(path.resolve(projectPath))) {
+            return null;
+        }
+        return resolved;
+    };
+
+    try {
+        if (name === 'readFile') {
+            const fullPath = safePath(args.filePath);
+            if (!fullPath) return { error: 'Path traversal not allowed' };
+            if (!fs.existsSync(fullPath)) return { error: `File not found: ${args.filePath}` };
+            const stat = fs.statSync(fullPath);
+            if (stat.size > 100 * 1024) return { error: `File too large: ${(stat.size / 1024).toFixed(0)}KB (max 100KB)` };
+            return { content: fs.readFileSync(fullPath, 'utf-8') };
+        }
+
+        if (name === 'writeFile') {
+            const fullPath = safePath(args.filePath);
+            if (!fullPath) return { error: 'Path traversal not allowed' };
+            const dir = path.dirname(fullPath);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(fullPath, args.content, 'utf-8');
+            return { success: true, message: `Written: ${args.filePath} (${args.content.length} chars)` };
+        }
+
+        if (name === 'listFiles') {
+            const fullPath = safePath(args.dirPath);
+            if (!fullPath) return { error: 'Path traversal not allowed' };
+            if (!fs.existsSync(fullPath)) return { error: `Directory not found: ${args.dirPath}` };
+            const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+            const items = entries
+                .filter(e => !GEMINI_LIST_SKIP.has(e.name) && !e.name.startsWith('.'))
+                .map(e => `${e.isDirectory() ? '📁' : '📄'} ${e.name}`)
+                .slice(0, 100);
+            return { files: items.join('\n') };
+        }
+
+        return { error: `Unknown tool: ${name}` };
+    } catch (err) {
+        return { error: err.message };
+    }
+}
+
 /**
- * Stream Gemini response.
+ * Stream Gemini response with file tool support.
  * Returns an object with { abort() } for cancellation.
  */
 function streamGemini(apiKey, history, callbacks, options) {
     let aborted = false;
-    let abortController = null;
 
     const run = async () => {
         try {
             const client = getGeminiClient(apiKey);
+            const projectPath = (options && options.projectPath) || null;
 
             let systemPrompt = GEMINI_SYSTEM_PROMPT;
             if (options && options.projectContext) {
@@ -220,10 +317,18 @@ function streamGemini(apiKey, history, callbacks, options) {
                 systemPrompt += `\n\n## 현재 모드 지침\n${options.systemPromptSuffix}`;
             }
 
-            const model = client.getGenerativeModel({
+            // Enable file tools only when projectPath is available
+            const modelConfig = {
                 model: 'gemini-2.5-flash',
                 systemInstruction: systemPrompt,
-            });
+            };
+            if (projectPath) {
+                modelConfig.tools = GEMINI_FILE_TOOLS;
+                systemPrompt += `\n\n## 파일 접근\n프로젝트 경로: ${projectPath}\nreadFile, writeFile, listFiles 도구를 사용해서 프로젝트 파일을 직접 읽고 수정할 수 있습니다. 필요하면 적극적으로 사용하세요.`;
+                modelConfig.systemInstruction = systemPrompt;
+            }
+
+            const model = client.getGenerativeModel(modelConfig);
 
             const recent = history.length > 6 ? history.slice(-6) : history;
             const geminiHistory = toGeminiHistory(recent);
@@ -233,17 +338,70 @@ function streamGemini(apiKey, history, callbacks, options) {
                 throw new Error('Last message must be user role for Gemini');
             }
 
+            // Gemini requires history to start with 'user' role — drop leading 'model' messages
+            while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') {
+                geminiHistory.shift();
+            }
+
             const chat = model.startChat({ history: geminiHistory });
-            const result = await chat.sendMessageStream(lastMsg.parts);
 
             let fullText = '';
-            for await (const chunk of result.stream) {
+            let currentParts = lastMsg.parts;
+
+            // Loop to handle function calls
+            const MAX_TOOL_ROUNDS = 10;
+            for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
                 if (aborted) break;
-                const text = chunk.text();
-                if (text) {
-                    fullText += text;
-                    callbacks.onToken(text);
+
+                const result = await chat.sendMessageStream(currentParts);
+
+                let functionCalls = [];
+                for await (const chunk of result.stream) {
+                    if (aborted) break;
+                    // Check for function calls
+                    const candidates = chunk.candidates || [];
+                    for (const candidate of candidates) {
+                        const parts = (candidate.content && candidate.content.parts) || [];
+                        for (const part of parts) {
+                            if (part.functionCall) {
+                                functionCalls.push(part.functionCall);
+                            }
+                        }
+                    }
+                    // Stream text
+                    try {
+                        const text = chunk.text();
+                        if (text) {
+                            fullText += text;
+                            callbacks.onToken(text);
+                        }
+                    } catch (_) {}
                 }
+
+                // If no function calls or no projectPath, we're done
+                if (functionCalls.length === 0 || !projectPath) break;
+
+                // Execute function calls and send results back
+                const functionResponses = [];
+                for (const fc of functionCalls) {
+                    const toolResult = executeGeminiTool(fc.name, fc.args, projectPath);
+                    // Notify UI about tool usage
+                    const action = fc.name === 'writeFile' ? `✏️ ${fc.args.filePath}` :
+                                   fc.name === 'readFile' ? `📖 ${fc.args.filePath}` :
+                                   `📂 ${fc.args.dirPath}`;
+                    callbacks.onToken(`\n\`[Tool: ${action}]\`\n`);
+                    fullText += `\n[Tool: ${action}]\n`;
+
+                    functionResponses.push({
+                        functionResponse: {
+                            name: fc.name,
+                            response: toolResult,
+                        }
+                    });
+                }
+
+                // Send tool results back to Gemini for next round
+                currentParts = functionResponses;
             }
 
             if (!aborted) {

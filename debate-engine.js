@@ -63,6 +63,7 @@ class DebateEngine {
         this.maxRounds = 2;
         this.geminiApiKey = '';
         this.projectContext = null;
+        this.projectPath = null;
         this._activeHandles = [];  // for abort
     }
 
@@ -104,6 +105,7 @@ class DebateEngine {
         this.maxRounds = (opts && opts.maxRounds) || 1;
         this.geminiApiKey = (opts && opts.geminiApiKey) || '';
         this.projectContext = (opts && opts.projectContext) || null;
+        this.projectPath = (opts && opts.projectPath) || null;
         this.sessionId = crypto.randomUUID();
         this.history.clear();
         this.history.add('user', task);
@@ -118,11 +120,24 @@ class DebateEngine {
     /**
      * Continue conversation with a new user message.
      */
-    async continue(userMessage, callbacks) {
+    async continue(userMessage, callbacks, opts) {
         // Force reset running state if stuck from previous round
         if (this.running) {
             this.running = false;
             this._activeHandles = [];
+        }
+        // Refresh project context if provided
+        if (opts && opts.projectContext) {
+            this.projectContext = opts.projectContext;
+        }
+        if (opts && opts.projectPath) {
+            this.projectPath = opts.projectPath;
+        }
+        if (opts && opts.mode) {
+            this.mode = opts.mode;
+        }
+        if (opts && opts.aiMode) {
+            this.aiMode = opts.aiMode;
         }
         this.history.add('user', userMessage);
         await this._runRounds(callbacks);
@@ -171,7 +186,7 @@ class DebateEngine {
                         resolve();
                     },
                 },
-                { systemPromptSuffix: modeConfig.geminiSuffix, projectContext }
+                { systemPromptSuffix: modeConfig.geminiSuffix, projectContext, projectPath: this.projectPath }
             );
             this._activeHandles.push(handle);
         });
@@ -228,7 +243,7 @@ class DebateEngine {
                                 resolve(true);
                             },
                         },
-                        { systemPromptSuffix: geminiSuffix, projectContext }
+                        { systemPromptSuffix: geminiSuffix, projectContext, projectPath: this.projectPath }
                     );
                     this._activeHandles.push(handle);
                 });
@@ -257,7 +272,7 @@ class DebateEngine {
                                 resolve();
                             },
                         },
-                        { systemPromptSuffix: claudeSuffix, projectContext }
+                        { systemPromptSuffix: claudeSuffix, projectContext, projectPath: this.projectPath }
                     );
                     this._activeHandles.push(handle);
                 });
