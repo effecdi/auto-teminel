@@ -3,6 +3,9 @@
 
 const { BrowserView, nativeImage } = require('electron');
 const https = require('https');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 class ComputerControl {
     constructor(mainWindow) {
@@ -21,6 +24,7 @@ class ComputerControl {
         this.onActionLog = null;
         this.onScreenshot = null;
         this.onError = null;
+        this.onVerifyComplete = null;
     }
 
     // ===================================================================
@@ -441,6 +445,18 @@ class ComputerControl {
         this.state = this._aborted ? 'stopped' : 'idle';
         this._emitUpdate();
         this._log('status', `Agent ${this._aborted ? 'stopped' : 'finished'} after ${this._loopCount} loops`);
+
+        // Extract final summary from last assistant message and invoke verify callback
+        if (this.onVerifyComplete && !this._aborted) {
+            try {
+                const lastAssistant = [...this._conversationHistory].reverse().find(m => m.role === 'assistant');
+                if (lastAssistant) {
+                    const textBlocks = (lastAssistant.content || []).filter(b => b.type === 'text' && b.text);
+                    const summary = textBlocks.map(b => b.text).join('\n') || 'No summary available';
+                    this.onVerifyComplete(summary);
+                }
+            } catch (_) {}
+        }
     }
 
     stop() {
@@ -456,6 +472,83 @@ class ComputerControl {
             maxLoops: this._maxLoops,
             currentUrl: this.getCurrentUrl()
         };
+    }
+
+    // ===================================================================
+    //  Auto Detect Dev Server
+    // ===================================================================
+
+    static async autoDetectDevServer(projectPath) {
+        const defaultPorts = [3000, 3001, 5173, 5174, 8080, 8000, 8888, 4200, 4000, 1234, 9000];
+        const priorityPorts = [];
+
+        // Try to extract port hints from package.json
+        try {
+            const pkgPath = path.join(projectPath, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                const scripts = pkg.scripts || {};
+                const devScripts = [scripts.dev, scripts.start, scripts.serve].filter(Boolean);
+                for (const script of devScripts) {
+                    // Match --port, -p, PORT= patterns
+                    const portMatch = script.match(/(?:--port|--PORT|-p)\s+(\d+)/i) ||
+                                      script.match(/PORT[=\s]+(\d+)/i);
+                    if (portMatch) {
+                        const p = parseInt(portMatch[1], 10);
+                        if (p > 0 && p < 65536 && !priorityPorts.includes(p)) {
+                            priorityPorts.push(p);
+                        }
+                    }
+                }
+            }
+        } catch (_) {}
+
+        // Merge: priority ports first, then defaults (no duplicates)
+        const ports = [...priorityPorts, ...defaultPorts.filter(p => !priorityPorts.includes(p))];
+
+        // Probe each port with HTTP GET (1s timeout)
+        for (const port of ports) {
+            try {
+                const alive = await new Promise((resolve) => {
+                    const req = http.get(`http://localhost:${port}`, { timeout: 1000 }, (res) => {
+                        res.resume(); // drain
+                        resolve(true);
+                    });
+                    req.on('error', () => resolve(false));
+                    req.on('timeout', () => { req.destroy(); resolve(false); });
+                });
+                if (alive) return `http://localhost:${port}`;
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    // ===================================================================
+    //  Auto Verify
+    // ===================================================================
+
+    async autoVerify(projectPath, apiKey, model) {
+        this._log('status', 'Dev server 자동 탐지 중...');
+
+        const url = await ComputerControl.autoDetectDevServer(projectPath);
+        if (!url) {
+            this._emitError('Dev server를 찾을 수 없습니다. 프로젝트의 dev server를 먼저 실행하세요.');
+            return { success: false, error: 'Dev server를 찾을 수 없습니다' };
+        }
+
+        this._log('status', `Dev server 발견: ${url}`);
+
+        const verifyPrompt = `이 웹 애플리케이션을 자율적으로 검증하세요:
+1. 현재 페이지의 레이아웃, 디자인, UI 요소를 분석
+2. 모든 버튼, 링크, 입력 필드를 클릭/테스트
+3. 페이지 네비게이션 — 다른 페이지로 이동하며 확인
+4. 반응형 확인 — 스크롤, 리사이즈
+5. 에러 발견 시 상세히 기록
+6. 최종 검증 결과를 한국어로 요약 (정상 항목, 문제 항목, 개선 제안)`;
+
+        // Start the agent loop — runs in background
+        this.startTask(verifyPrompt, url, apiKey, model);
+        return { success: true, url };
     }
 
     // ===================================================================

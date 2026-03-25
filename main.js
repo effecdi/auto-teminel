@@ -1963,6 +1963,58 @@ ipcMain.handle('computerControl.getState', (event, { id }) => {
     return cc.getState();
 });
 
+ipcMain.handle('computerControl.autoVerify', async (event, { id, projectId }) => {
+    // Ensure CC instance exists
+    if (!computerControls.has(id) && mainWindow && !mainWindow.isDestroyed()) {
+        const cc = new ComputerControl(mainWindow);
+        cc.onUpdate = (state) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('computerControl.updated', { id, ...state });
+            }
+        };
+        cc.onScreenshot = (base64, width, height) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('computerControl.screenshot', { id, base64, width, height });
+            }
+        };
+        cc.onActionLog = (entry) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('computerControl.actionLog', { id, ...entry });
+            }
+        };
+        cc.onError = (message) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('computerControl.error', { id, message });
+            }
+        };
+        computerControls.set(id, cc);
+        cc.createBrowserView();
+    }
+
+    const cc = computerControls.get(id);
+    if (!cc) return { success: false, error: 'No instance' };
+
+    // Find project path
+    const projects = store.get('projects', []);
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+
+    const apiKey = store.get('anthropicApiKey', '');
+    if (!apiKey) return { success: false, error: 'Anthropic API key not set. Configure in Settings.' };
+    const model = store.get('computerUseModel', 'claude-sonnet-4-20250514');
+
+    // Set up verify complete callback
+    cc.onVerifyComplete = (summary) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('computerControl.verifyResult', { id, summary });
+        }
+    };
+
+    // Run autoVerify (non-blocking — startTask runs in background)
+    const result = await cc.autoVerify(project.path, apiKey, model);
+    return result;
+});
+
 // ===================================================================
 //  Project Management
 // ===================================================================

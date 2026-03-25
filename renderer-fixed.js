@@ -4064,6 +4064,55 @@ function ccStopTask() {
     ipcRenderer.invoke('computerControl.stop', { id: CC_ID });
 }
 
+async function ccAutoVerify() {
+    if (!currentProject) { showToast('프로젝트를 선택하세요', 'error'); return; }
+
+    // Switch to CC mode if not already
+    if (!ccMode) toggleComputerControl();
+
+    const verifyBtn = document.getElementById('ccVerifyBtn');
+    if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = '🔍 탐지 중...';
+    }
+
+    // Clear log
+    const logEntries = document.getElementById('ccLogEntries');
+    if (logEntries) logEntries.innerHTML = '';
+
+    const result = await ipcRenderer.invoke('computerControl.autoVerify', {
+        id: CC_ID,
+        projectId: currentProject.id
+    });
+
+    if (!result.success) {
+        showToast(result.error, 'error');
+        if (verifyBtn) {
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = '🔍 자동 검증';
+        }
+        return;
+    }
+
+    // Update URL input with detected URL
+    const urlInput = document.getElementById('ccUrlInput');
+    if (urlInput) urlInput.value = result.url;
+
+    // Hide placeholder
+    const placeholder = document.getElementById('ccBrowserPlaceholder');
+    if (placeholder) placeholder.style.display = 'none';
+
+    // Update buttons
+    document.getElementById('ccStartBtn').style.display = 'none';
+    document.getElementById('ccStopBtn').style.display = '';
+    if (verifyBtn) {
+        verifyBtn.style.display = 'none';
+    }
+
+    // Update browser bounds
+    setTimeout(() => ccUpdateBrowserBounds(), 200);
+}
+
 // IPC listeners for Computer Control
 ipcRenderer.on('computerControl.updated', (event, data) => {
     const statusDot = document.getElementById('ccStatusDot');
@@ -4086,13 +4135,20 @@ ipcRenderer.on('computerControl.updated', (event, data) => {
     } else if (loopCount) {
         loopCount.textContent = data.loopCount > 0 ? `${data.loopCount} loops completed` : '';
     }
+    const verifyBtn = document.getElementById('ccVerifyBtn');
     if (startBtn && stopBtn) {
         if (data.state === 'running') {
             startBtn.style.display = 'none';
             stopBtn.style.display = '';
+            if (verifyBtn) verifyBtn.style.display = 'none';
         } else {
             startBtn.style.display = '';
             stopBtn.style.display = 'none';
+            if (verifyBtn) {
+                verifyBtn.style.display = '';
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = '🔍 자동 검증';
+            }
         }
     }
 });
@@ -4125,6 +4181,28 @@ ipcRenderer.on('computerControl.actionLog', (event, data) => {
 
 ipcRenderer.on('computerControl.error', (event, data) => {
     showToast(`CC Error: ${data.message}`, 'error');
+});
+
+ipcRenderer.on('computerControl.verifyResult', (event, data) => {
+    // Restore verify button
+    const verifyBtn = document.getElementById('ccVerifyBtn');
+    if (verifyBtn) {
+        verifyBtn.style.display = '';
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = '🔍 자동 검증';
+    }
+
+    // Add summary to action log
+    const logEntries = document.getElementById('ccLogEntries');
+    if (logEntries && data.summary) {
+        const entry = document.createElement('div');
+        entry.className = 'cc-log-entry type-verify-result';
+        entry.innerHTML = `<div style="color:var(--accent-purple); font-weight:600; margin-bottom:4px;">📋 검증 결과 요약</div><div style="white-space:pre-wrap; font-size:12px; line-height:1.5;">${escapeHtml(data.summary)}</div>`;
+        logEntries.appendChild(entry);
+        logEntries.scrollTop = logEntries.scrollHeight;
+    }
+
+    showToast('자동 검증 완료', 'success');
 });
 
 // Update CC browser bounds on window resize
