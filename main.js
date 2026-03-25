@@ -923,7 +923,7 @@ app.whenReady().then(() => {
     });
 
     autoUpdater.on('error', (err) => {
-        safelog('[Updater] Error:', err.message);
+        safelog('[Updater] Error:', err.message, err.stack || '');
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('updater.error', {
                 message: err.message
@@ -2859,7 +2859,15 @@ ipcMain.handle('updater.download', () => {
 });
 
 ipcMain.handle('updater.install', () => {
-    autoUpdater.quitAndInstall(false, true);
+    safelog('[Updater] quitAndInstall requested');
+    try {
+        autoUpdater.quitAndInstall(false, true);
+    } catch (err) {
+        safelog('[Updater] quitAndInstall failed, force relaunch:', err.message);
+        // Fallback: force relaunch the app (update will install on next launch via autoInstallOnAppQuit)
+        app.relaunch();
+        app.exit(0);
+    }
 });
 
 ipcMain.handle('updater.getVersion', () => {
