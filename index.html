@@ -581,6 +581,7 @@
                 </div>
                 <div class="terminal-toolbar">
                     <button class="toolbar-btn toolbar-btn-ai" id="aiChatToggleBtn" onclick="toggleAiChat()" title="Toggle AI Chat (Claude + Gemini)">🤖 AI Chat</button>
+                    <button class="toolbar-btn toolbar-btn-cc" id="ccToggleBtn" onclick="toggleComputerControl()" title="Computer Control (Browser Automation)">🖥 Computer</button>
                     <span class="toolbar-separator" id="terminalToolbarSep">|</span>
                     <span id="terminalOnlyBtns">
                         <button class="toolbar-btn" onclick="restartTerminal()" title="Kill & restart Claude CLI for current project">🔄 Restart</button>
@@ -704,6 +705,49 @@
                     <option value="claude-solo">Claude Solo</option>
                     <option value="gemini-solo">Gemini Solo</option>
                 </select>
+            </div>
+
+            <!-- Computer Control Container -->
+            <div id="cc-container" style="display:none;">
+                <!-- CC Header: URL bar + controls -->
+                <div class="cc-header">
+                    <button class="cc-back-btn" onclick="toggleComputerControl()" title="Back to Terminal">←</button>
+                    <div class="cc-url-bar">
+                        <input type="text" id="ccUrlInput" placeholder="Enter URL..." onkeydown="if(event.key==='Enter')ccNavigate()">
+                        <button class="cc-go-btn" onclick="ccNavigate()">Go</button>
+                    </div>
+                    <button class="cc-action-btn cc-start-btn" id="ccStartBtn" onclick="ccStartTask()">▶ Start</button>
+                    <button class="cc-action-btn cc-stop-btn" id="ccStopBtn" onclick="ccStopTask()" style="display:none;">⏹ Stop</button>
+                </div>
+
+                <!-- CC Task Input -->
+                <div class="cc-task-bar">
+                    <textarea id="ccTaskInput" placeholder="작업 지시를 입력하세요... (예: 검색창에 'Electron' 입력하고 검색 버튼 클릭)" rows="2"></textarea>
+                </div>
+
+                <!-- CC Body: Browser + Log -->
+                <div class="cc-body">
+                    <div class="cc-browser-panel">
+                        <div class="cc-browser-placeholder" id="ccBrowserPlaceholder">
+                            <div style="font-size:36px; opacity:0.3;">🖥</div>
+                            <div style="font-size:13px; color:var(--text-muted); margin-top:8px;">URL을 입력하고 Go를 클릭하세요</div>
+                        </div>
+                        <img id="ccScreenshot" style="display:none; width:100%; height:100%; object-fit:contain;" alt="Screenshot">
+                    </div>
+                    <div class="cc-log-panel">
+                        <div class="cc-log-header">Action Log</div>
+                        <div class="cc-log-entries" id="ccLogEntries">
+                            <div class="cc-log-empty">Actions will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CC Status Bar -->
+                <div class="cc-status-bar" id="ccStatusBar">
+                    <span class="cc-status-dot" id="ccStatusDot"></span>
+                    <span class="cc-status-text" id="ccStatusText">Idle</span>
+                    <span class="cc-loop-count" id="ccLoopCount"></span>
+                </div>
             </div>
 
             <!-- Prompt Area (below terminal) -->
@@ -995,6 +1039,22 @@
 
                 <hr style="border-color: var(--border-primary); margin: 16px 0;">
                 <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">AI Chat Settings</h3>
+
+                <div class="form-group">
+                    <label>Anthropic API Key (Computer Control)</label>
+                    <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
+                    <small>Required for Computer Control feature. Get from <a href="https://console.anthropic.com/" style="color:var(--accent);" target="_blank">Anthropic Console</a>.</small>
+                </div>
+                <div class="form-group">
+                    <label>Computer Use Model</label>
+                    <select id="computerUseModel" class="form-select">
+                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                        <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                    </select>
+                    <small>Model to use for Computer Control browser automation</small>
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
 
                 <div class="form-group">
                     <label>Gemini API Key</label>

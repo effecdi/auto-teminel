@@ -55,6 +55,10 @@ let autoVerifyEnabled = false;
 // Auto-Restart resend prompt state
 let autoRestartResendPrompt = true;
 
+// Computer Control state
+let ccMode = false;                  // true = CC visible, false = Terminal visible
+const CC_ID = 'main';               // single CC instance id
+
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
 let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}]
@@ -1209,6 +1213,8 @@ function openSettings() {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
+        document.getElementById('anthropicApiKey').value = s.anthropicApiKey || '';
+        document.getElementById('computerUseModel').value = s.computerUseModel || 'claude-sonnet-4-20250514';
         document.getElementById('autoFixCooldown').value = af.cooldown || 30;
         document.getElementById('autoFixTemplateText').value = af.template || 'CRITICAL ERROR DETECTED: [{label}] {error}\nFix the root cause completely.';
         document.getElementById('autoFixMaxRetries').value = af.maxRetries || 3;
@@ -1272,7 +1278,11 @@ async function saveSettings() {
     const arMaxRetries = parseInt(document.getElementById('autoRestartMaxRetriesInput').value, 10) || 3;
     const arRateWindow = parseInt(document.getElementById('autoRestartRateWindow').value, 10) || 5;
 
-    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize });
+    // Computer Control settings
+    const anthropicApiKey = document.getElementById('anthropicApiKey').value.trim();
+    const computerUseModel = document.getElementById('computerUseModel').value;
+
+    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize, anthropicApiKey, computerUseModel });
     await ipcRenderer.invoke('autoFix.setSettings', {
         cooldown: autoFixCooldown,
         template: autoFixTemplateText,
@@ -2453,6 +2463,8 @@ ipcRenderer.on('pipeline.error', (event, { projectId, message, source }) => {
  * Toggle between Terminal+Timeline view and AI Chat bubble view.
  */
 function toggleAiChat() {
+    // If CC is active, close it first
+    if (ccMode) toggleComputerControl();
     aiChatMode = !aiChatMode;
 
     const terminalContainer = document.getElementById('terminal-container');
@@ -3710,6 +3722,197 @@ ipcRenderer.on('updater.error', (event, { message }) => {
     }
     const statusEl = document.getElementById('app-version-status');
     if (statusEl) { statusEl.style.display = 'none'; }
+});
+
+// ===================================================================
+//  Computer Control
+// ===================================================================
+
+function toggleComputerControl() {
+    // If AI chat is active, close it first
+    if (aiChatMode) toggleAiChat();
+
+    ccMode = !ccMode;
+
+    const terminalContainer = document.getElementById('terminal-container');
+    const ccContainer = document.getElementById('cc-container');
+    const aiChatContainer = document.getElementById('ai-chat-container');
+    const terminalOnlyBtns = document.getElementById('terminalOnlyBtns');
+    const toolbarSep = document.getElementById('terminalToolbarSep');
+    const contentHeader = document.querySelector('.content-header');
+    const ccBtn = document.getElementById('ccToggleBtn');
+    const promptArea = document.querySelector('.prompt-area');
+
+    if (ccMode) {
+        // Show CC, hide Terminal
+        if (terminalContainer) terminalContainer.style.display = 'none';
+        if (aiChatContainer) aiChatContainer.style.display = 'none';
+        if (ccContainer) ccContainer.style.display = 'flex';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
+        if (toolbarSep) toolbarSep.style.display = 'none';
+        if (ccBtn) ccBtn.classList.add('active');
+        if (contentHeader) contentHeader.style.display = 'none';
+        if (promptArea) promptArea.style.display = 'none';
+
+        // Hide other UI elements
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar) { queueBar.dataset.hiddenByCC = queueBar.style.display !== 'none' ? '1' : ''; queueBar.style.display = 'none'; }
+        const imgBar = document.getElementById('imagePreviewBar');
+        if (imgBar) { imgBar.dataset.hiddenByCC = imgBar.style.display !== 'none' ? '1' : ''; imgBar.style.display = 'none'; }
+
+        // Create BrowserView
+        ipcRenderer.invoke('computerControl.create', { id: CC_ID }).then(() => {
+            // Set bounds after a small delay for layout to settle
+            setTimeout(() => ccUpdateBrowserBounds(), 100);
+        });
+    } else {
+        // Hide CC, show Terminal
+        if (ccContainer) ccContainer.style.display = 'none';
+        if (terminalContainer) terminalContainer.style.display = '';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
+        if (toolbarSep) toolbarSep.style.display = '';
+        if (ccBtn) ccBtn.classList.remove('active');
+        if (contentHeader) contentHeader.style.display = '';
+        if (promptArea) promptArea.style.display = '';
+
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar && queueBar.dataset.hiddenByCC === '1') queueBar.style.display = '';
+        const imgBar = document.getElementById('imagePreviewBar');
+        if (imgBar && imgBar.dataset.hiddenByCC === '1') imgBar.style.display = '';
+
+        // Hide BrowserView (set bounds to 0)
+        ipcRenderer.invoke('computerControl.setBounds', { id: CC_ID, bounds: { x: 0, y: 0, width: 0, height: 0 } });
+
+        // Re-fit terminal
+        if (currentProject) {
+            const entry = termPool.get(currentProject.id);
+            if (entry) requestAnimationFrame(() => fitEntry(entry));
+        }
+    }
+}
+
+function ccUpdateBrowserBounds() {
+    const placeholder = document.getElementById('ccBrowserPlaceholder');
+    if (!placeholder) return;
+    const panel = placeholder.closest('.cc-browser-panel');
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    // BrowserView bounds are relative to the window
+    ipcRenderer.invoke('computerControl.setBounds', {
+        id: CC_ID,
+        bounds: {
+            x: Math.round(rect.left),
+            y: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+        }
+    });
+}
+
+function ccNavigate() {
+    const urlInput = document.getElementById('ccUrlInput');
+    if (!urlInput) return;
+    const url = urlInput.value.trim();
+    if (!url) return;
+    ipcRenderer.invoke('computerControl.navigate', { id: CC_ID, url });
+    // Hide placeholder, show screenshot area
+    const placeholder = document.getElementById('ccBrowserPlaceholder');
+    if (placeholder) placeholder.style.display = 'none';
+}
+
+async function ccStartTask() {
+    const taskInput = document.getElementById('ccTaskInput');
+    const urlInput = document.getElementById('ccUrlInput');
+    if (!taskInput) return;
+    const task = taskInput.value.trim();
+    if (!task) { showToast('작업 지시를 입력하세요', 'error'); return; }
+    const startUrl = urlInput ? urlInput.value.trim() : '';
+
+    const result = await ipcRenderer.invoke('computerControl.startTask', { id: CC_ID, task, startUrl });
+    if (!result.success) {
+        showToast(result.error, 'error');
+        return;
+    }
+    // Update UI
+    document.getElementById('ccStartBtn').style.display = 'none';
+    document.getElementById('ccStopBtn').style.display = '';
+    // Clear log
+    const logEntries = document.getElementById('ccLogEntries');
+    if (logEntries) logEntries.innerHTML = '';
+}
+
+function ccStopTask() {
+    ipcRenderer.invoke('computerControl.stop', { id: CC_ID });
+}
+
+// IPC listeners for Computer Control
+ipcRenderer.on('computerControl.updated', (event, data) => {
+    const statusDot = document.getElementById('ccStatusDot');
+    const statusText = document.getElementById('ccStatusText');
+    const loopCount = document.getElementById('ccLoopCount');
+    const startBtn = document.getElementById('ccStartBtn');
+    const stopBtn = document.getElementById('ccStopBtn');
+
+    if (statusDot) {
+        statusDot.className = 'cc-status-dot';
+        if (data.state === 'running') statusDot.classList.add('running');
+        else if (data.state === 'stopped') statusDot.classList.add('stopped');
+        else statusDot.classList.add('idle');
+    }
+    if (statusText) {
+        statusText.textContent = data.state === 'running' ? 'Running...' : data.state === 'stopped' ? 'Stopped' : 'Idle';
+    }
+    if (loopCount && data.state === 'running') {
+        loopCount.textContent = `Loop ${data.loopCount}/${data.maxLoops}`;
+    } else if (loopCount) {
+        loopCount.textContent = data.loopCount > 0 ? `${data.loopCount} loops completed` : '';
+    }
+    if (startBtn && stopBtn) {
+        if (data.state === 'running') {
+            startBtn.style.display = 'none';
+            stopBtn.style.display = '';
+        } else {
+            startBtn.style.display = '';
+            stopBtn.style.display = 'none';
+        }
+    }
+});
+
+ipcRenderer.on('computerControl.screenshot', (event, data) => {
+    const img = document.getElementById('ccScreenshot');
+    const placeholder = document.getElementById('ccBrowserPlaceholder');
+    if (img) {
+        img.src = 'data:image/png;base64,' + data.base64;
+        img.style.display = 'block';
+    }
+    if (placeholder) placeholder.style.display = 'none';
+});
+
+ipcRenderer.on('computerControl.actionLog', (event, data) => {
+    const logEntries = document.getElementById('ccLogEntries');
+    if (!logEntries) return;
+    // Remove empty placeholder
+    const empty = logEntries.querySelector('.cc-log-empty');
+    if (empty) empty.remove();
+
+    const entry = document.createElement('div');
+    entry.className = `cc-log-entry type-${data.type}`;
+    const time = new Date(data.timestamp);
+    const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = `<span class="cc-log-time">${timeStr}</span>${escapeHtml(data.message)}`;
+    logEntries.appendChild(entry);
+    logEntries.scrollTop = logEntries.scrollHeight;
+});
+
+ipcRenderer.on('computerControl.error', (event, data) => {
+    showToast(`CC Error: ${data.message}`, 'error');
+});
+
+// Update CC browser bounds on window resize
+window.addEventListener('resize', () => {
+    if (ccMode) {
+        ccUpdateBrowserBounds();
+    }
 });
 
 // ===================================================================

@@ -8,6 +8,7 @@ const { execSync } = require('child_process');
 const Store = require('electron-store');
 const pty = require('node-pty');
 const TaskQueue = require('./task-queue');
+const ComputerControl = require('./computer-control');
 const { startRemoteServer, stopRemoteServer, broadcastOutput, broadcastEvent, broadcastQueueUpdate } = require('./remote-server');
 const { DebateEngine, MODES } = require('./debate-engine');
 const { buildProjectContext, getOperationsList } = require('./project-context');
@@ -29,6 +30,9 @@ process.on('uncaughtException', (err) => {
 
 const store = new Store();
 let mainWindow;
+
+// Computer Control instances — one per session (keyed by arbitrary id)
+const computerControls = new Map();
 
 // Track temp files for cleanup
 const tempImageFiles = [];
@@ -800,6 +804,10 @@ function createWindow() {
 
         // Persist pending/running tasks so they survive restarts
         persistTaskQueue();
+
+        // Cleanup Computer Control instances
+        for (const [, cc] of computerControls) { cc.stop(); cc.destroyBrowserView(); }
+        computerControls.clear();
 
         stopRemoteServer();
         destroyAllPty();
@@ -1850,14 +1858,100 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (settings.defaultClaudeArgs !== undefined) store.set('defaultClaudeArgs', settings.defaultClaudeArgs);
     if (settings.shellPath !== undefined)         store.set('shellPath', settings.shellPath);
     if (settings.fontSize !== undefined)           store.set('fontSize', settings.fontSize);
+    if (settings.anthropicApiKey !== undefined)    store.set('anthropicApiKey', settings.anthropicApiKey);
+    if (settings.computerUseModel !== undefined)   store.set('computerUseModel', settings.computerUseModel);
     return { success: true };
 });
 
 ipcMain.handle('get-settings', () => ({
     defaultClaudeArgs: store.get('defaultClaudeArgs', ''),
     shellPath: store.get('shellPath', ''),
-    fontSize: store.get('fontSize', 14)
+    fontSize: store.get('fontSize', 14),
+    anthropicApiKey: store.get('anthropicApiKey', ''),
+    computerUseModel: store.get('computerUseModel', 'claude-sonnet-4-20250514')
 }));
+
+// ===================================================================
+//  Computer Control IPC Handlers
+// ===================================================================
+
+ipcMain.handle('computerControl.create', (event, { id }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'No window' };
+    if (computerControls.has(id)) return { success: true };
+
+    const cc = new ComputerControl(mainWindow);
+    cc.onUpdate = (state) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('computerControl.updated', { id, ...state });
+        }
+    };
+    cc.onScreenshot = (base64, width, height) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('computerControl.screenshot', { id, base64, width, height });
+        }
+    };
+    cc.onActionLog = (entry) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('computerControl.actionLog', { id, ...entry });
+        }
+    };
+    cc.onError = (message) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('computerControl.error', { id, message });
+        }
+    };
+
+    cc.createBrowserView();
+    computerControls.set(id, cc);
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.destroy', (event, { id }) => {
+    const cc = computerControls.get(id);
+    if (cc) {
+        cc.stop();
+        cc.destroyBrowserView();
+        computerControls.delete(id);
+    }
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.navigate', (event, { id, url }) => {
+    const cc = computerControls.get(id);
+    if (!cc) return { success: false, error: 'No instance' };
+    cc.navigate(url);
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.setBounds', (event, { id, bounds }) => {
+    const cc = computerControls.get(id);
+    if (!cc) return { success: false, error: 'No instance' };
+    cc.setBounds(bounds);
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.startTask', async (event, { id, task, startUrl }) => {
+    const cc = computerControls.get(id);
+    if (!cc) return { success: false, error: 'No instance' };
+    const apiKey = store.get('anthropicApiKey', '');
+    if (!apiKey) return { success: false, error: 'Anthropic API key not set. Configure in Settings.' };
+    const model = store.get('computerUseModel', 'claude-sonnet-4-20250514');
+    // Run asynchronously — don't await (loop runs in background)
+    cc.startTask(task, startUrl, apiKey, model);
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.stop', (event, { id }) => {
+    const cc = computerControls.get(id);
+    if (cc) cc.stop();
+    return { success: true };
+});
+
+ipcMain.handle('computerControl.getState', (event, { id }) => {
+    const cc = computerControls.get(id);
+    if (!cc) return { state: 'idle', loopCount: 0, maxLoops: 30, currentUrl: '' };
+    return cc.getState();
+});
 
 // ===================================================================
 //  Project Management
