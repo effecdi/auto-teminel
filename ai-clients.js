@@ -62,7 +62,15 @@ function streamClaude(history, callbacks, options) {
     const cwd = (options && options.projectPath) || process.cwd();
 
     const args = ['-p', '--output-format', 'stream-json', '--verbose',
-        '--allowedTools', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash(npm:*)', 'Bash(node:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(find:*)',
+        '--allowedTools',
+        'Read', 'Glob', 'Grep', 'Edit', 'Write',
+        'Bash(npm:*)', 'Bash(node:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(find:*)',
+        'Bash(git:*)', 'Bash(docker:*)', 'Bash(docker-compose:*)',
+        'Bash(mkdir:*)', 'Bash(rm:*)', 'Bash(cp:*)', 'Bash(mv:*)',
+        'Bash(chmod:*)', 'Bash(curl:*)', 'Bash(wget:*)',
+        'Bash(pip:*)', 'Bash(python:*)', 'Bash(python3:*)',
+        'Bash(npx:*)', 'Bash(yarn:*)', 'Bash(pnpm:*)',
+        'Bash(tar:*)', 'Bash(unzip:*)', 'Bash(ssh:*)', 'Bash(scp:*)',
     ];
 
     const proc = spawn('claude', args, {
