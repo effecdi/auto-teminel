@@ -58,7 +58,7 @@ function streamClaude(history, callbacks, options) {
     for (const p of extraPaths) pathSet.add(p);
     cleanEnv.PATH = [...pathSet].join(':');
 
-    const proc = spawn('claude', ['-p', '--output-format', 'stream-json'], {
+    const proc = spawn('claude', ['-p', '--output-format', 'stream-json', '--verbose'], {
         env: {
             ...cleanEnv,
             ANTHROPIC_API_KEY: '',
