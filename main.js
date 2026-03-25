@@ -49,11 +49,15 @@ const taskQueue = new TaskQueue({
         const PASTE_START = '\x1b[200~';
         const PASTE_END   = '\x1b[201~';
         entry.process.write(PASTE_START + text + PASTE_END);
+        // Use same dynamic delay as global writeToPty: 300ms base + up to 500ms for long text
+        const baseDelay = 300;
+        const extraDelay = Math.min(text.length * 0.5, 500);
+        const delay = Math.round(baseDelay + extraDelay);
         setTimeout(() => {
             if (entry.alive && entry.process) {
                 entry.process.write('\r');
             }
-        }, 100);
+        }, delay);
     },
     ptyPool,
     onUpdate: (state) => {
