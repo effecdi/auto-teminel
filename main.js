@@ -419,10 +419,15 @@ function writeToPty(entry, text) {
     const PASTE_START = '\x1b[200~';
     const PASTE_END   = '\x1b[201~';
     entry.process.write(PASTE_START + text + PASTE_END);
+    // Give TUI enough time to process pasted text before sending Enter.
+    // Base 300ms + proportional to text length (max +500ms for very long texts).
+    const baseDelay = 300;
+    const extraDelay = Math.min(text.length * 0.5, 500);
+    const delay = Math.round(baseDelay + extraDelay);
     setTimeout(() => {
         if (!entry.alive || !entry.process) return;
         entry.process.write('\r');
-    }, 100);
+    }, delay);
 }
 
 function stripAnsi(str) {
@@ -1117,9 +1122,12 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
                                               buf.includes('Skip interview') ||
                                               buf.includes('[ ]') ||
                                               buf.includes('[✔]');
-                // Claude CLI prompt indicators: "❯" or "How can I help" or "cwd:"
+                // Claude CLI prompt indicators
                 const hasReadyIndicator = clean.includes('❯') || clean.includes('How can I help') ||
-                                           clean.includes('cwd:') || buf.includes('How can I help');
+                                           clean.includes('cwd:') || buf.includes('How can I help') ||
+                                           clean.includes('Welcome back') || buf.includes('Welcome back') ||
+                                           clean.includes('Tips for getting started') ||
+                                           clean.includes('Claude Code v');
                 if (hasReadyIndicator && !hasInterviewPatterns) {
                     entry.claudeReady = true;
                     if (entry._readyFallback) {
@@ -2725,20 +2733,9 @@ function makePipelineCallbacks(projectId) {
 }
 
 ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) => {
-    // Direct write to PTY if ready (bypass queue for instant execution)
-    const entry = ptyPool.get(projectId);
-    if (entry && entry.alive && entry.process && entry.claudeReady) {
-        // No running tasks for this project — write directly
-        const hasRunning = taskQueue.getState().tasks.some(
-            t => t.status === 'running' && t.projectId === projectId
-        );
-        if (!hasRunning) {
-            console.log(`[Pipeline] Direct PTY write for ${projectId}`);
-            writeToPty(entry, text);
-            return { success: true, mode: 'direct' };
-        }
-    }
-    // Fallback: enqueue if PTY not ready or busy
+    // Always use queue to prevent race conditions with concurrent submissions.
+    // The queue handles sequencing properly: one task at a time per project,
+    // and dispatches immediately if claudeReady=true and no running tasks.
     const projects = store.get('projects', []);
     const project = projects.find(p => p.id === projectId);
     const projectName = project ? project.name : projectId;
