@@ -61,7 +61,11 @@ function streamClaude(history, callbacks, options) {
     // Set cwd to project path so Claude CLI has actual file access
     const cwd = (options && options.projectPath) || process.cwd();
 
-    const proc = spawn('claude', ['-p', '--output-format', 'stream-json', '--verbose'], {
+    const args = ['-p', '--output-format', 'stream-json', '--verbose',
+        '--allowedTools', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash(npm:*)', 'Bash(node:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(find:*)',
+    ];
+
+    const proc = spawn('claude', args, {
         cwd,
         env: {
             ...cleanEnv,
@@ -187,6 +191,7 @@ function toGeminiHistory(messages) {
         const last = mapped[mapped.length - 1];
 
         if (last && last.role === role) {
+            // Same role consecutive — merge into one
             const prevText = last.parts.map(p => p.text || '').join('');
             const label = msg.role === 'claude' ? '[Claude(시니어 풀스텍 개발자)]' : '[사용자]';
             last.parts = [{ text: `${prevText}\n\n${label}: ${msg.content}` }];
@@ -201,7 +206,26 @@ function toGeminiHistory(messages) {
         }
     }
 
-    return mapped;
+    // Gemini requires: starts with 'user', alternating user/model
+    // Drop leading 'model' messages
+    while (mapped.length > 0 && mapped[0].role !== 'user') {
+        mapped.shift();
+    }
+
+    // Ensure strict alternation — merge consecutive same-role entries
+    const fixed = [];
+    for (const entry of mapped) {
+        const prev = fixed[fixed.length - 1];
+        if (prev && prev.role === entry.role) {
+            const prevText = prev.parts.map(p => p.text || '').join('');
+            const curText = entry.parts.map(p => p.text || '').join('');
+            prev.parts = [{ text: `${prevText}\n\n${curText}` }];
+        } else {
+            fixed.push({ role: entry.role, parts: [...entry.parts] });
+        }
+    }
+
+    return fixed;
 }
 
 // ===================================================================
@@ -336,11 +360,6 @@ function streamGemini(apiKey, history, callbacks, options) {
             const lastMsg = geminiHistory.pop();
             if (!lastMsg || lastMsg.role !== 'user') {
                 throw new Error('Last message must be user role for Gemini');
-            }
-
-            // Gemini requires history to start with 'user' role — drop leading 'model' messages
-            while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') {
-                geminiHistory.shift();
             }
 
             const chat = model.startChat({ history: geminiHistory });

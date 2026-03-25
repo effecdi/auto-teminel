@@ -9,21 +9,21 @@ const crypto = require('crypto');
 const MODES = {
     debate: {
         name: 'Debate (토론)',
-        description: '두 AI가 각자의 관점에서 자유롭게 토론합니다.',
-        geminiSuffix: '상대방의 의견과 다르다면 대안을 구체적인 코드로 제시하세요. 추상적 토론 금지.',
+        description: 'Claude가 프로젝트 분석 → 두 AI가 토론합니다.',
+        geminiSuffix: 'Claude가 분석한 프로젝트 코드가 위에 있습니다. 이를 기반으로 대안을 구체적인 코드로 제시하세요. 추상적 토론 금지.',
         claudeSuffix: '상대방의 의견과 다르다면 대안을 구체적인 코드로 제시하세요. 추상적 토론 금지.',
     },
     collab: {
         name: 'Collab (협업)',
-        description: '두 AI가 협력하여 하나의 솔루션을 만듭니다.',
-        geminiSuffix: '상대방이 작성한 코드를 이어받아 디자인/CSS 부분을 완성하세요. 코드로 답하세요.',
-        claudeSuffix: '상대방이 작성한 디자인 코드를 이어받아 로직/백엔드 부분을 완성하세요. 코드로 답하세요.',
+        description: 'Claude가 프로젝트 분석 → Gemini가 디자인 → Claude가 구현',
+        geminiSuffix: 'Claude가 분석한 프로젝트의 실제 코드가 위에 있습니다. 이 코드를 기반으로 디자인/CSS/UI를 수정하세요. 파일 경로와 전체 코드 블록을 포함하세요.',
+        claudeSuffix: 'Gemini(디자이너)가 제안한 디자인을 프로젝트에 실제로 적용하세요. 파일 경로와 전체 코드를 제공하세요.',
     },
     review: {
         name: 'Review (리뷰)',
-        description: '한 AI가 제안하면 다른 AI가 리뷰합니다.',
-        geminiSuffix: '구체적인 코드를 제안하세요. 파일 경로와 전체 코드 블록을 포함하세요.',
-        claudeSuffix: '상대방의 코드를 리뷰하고 문제점마다 수정된 코드를 직접 제공하세요.',
+        description: 'Claude가 프로젝트 분석 → Gemini가 리뷰합니다.',
+        geminiSuffix: 'Claude가 분석한 프로젝트 코드가 위에 있습니다. 이를 기반으로 문제점과 수정 코드를 제시하세요. 파일 경로와 전체 코드 블록을 포함하세요.',
+        claudeSuffix: '상대방의 리뷰를 반영하여 수정된 코드를 직접 제공하세요.',
     },
     pipeline: {
         name: 'Pipeline (파이프라인)',
@@ -196,8 +196,59 @@ class DebateEngine {
         callbacks.onDebateComplete();
     }
 
+    /** Run a single Claude turn. */
+    async _runClaude(callbacks, opts) {
+        return new Promise((resolve) => {
+            const handle = streamClaude(
+                this.history.getAll(),
+                {
+                    onToken: (token) => callbacks.onClaudeToken(token),
+                    onComplete: (text) => {
+                        this.history.add('claude', text);
+                        callbacks.onClaudeComplete(text);
+                        resolve();
+                    },
+                    onError: (err) => {
+                        this.history.add('claude', '[응답 실패]');
+                        callbacks.onError(err, 'claude');
+                        resolve();
+                    },
+                },
+                { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath }
+            );
+            this._activeHandles.push(handle);
+        });
+    }
+
+    /** Run a single Gemini turn. */
+    async _runGemini(callbacks, opts) {
+        return new Promise((resolve) => {
+            const handle = streamGemini(
+                this.geminiApiKey,
+                this.history.getAll(),
+                {
+                    onToken: (token) => callbacks.onGeminiToken(token),
+                    onComplete: (text) => {
+                        this.history.add('gemini', text);
+                        callbacks.onGeminiComplete(text);
+                        resolve();
+                    },
+                    onError: (err) => {
+                        this.history.add('gemini', '[응답 실패]');
+                        callbacks.onError(err, 'gemini');
+                        resolve();
+                    },
+                },
+                { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath }
+            );
+            this._activeHandles.push(handle);
+        });
+    }
+
     /**
      * Core round execution loop.
+     * claudeFirst mode: Claude → Gemini → Claude (Claude reads files first, Gemini designs, Claude implements)
+     * default mode: Gemini → Claude
      */
     async _runRounds(callbacks) {
         this.running = true;
@@ -209,6 +260,7 @@ class DebateEngine {
         const projectContext = this.projectContext;
         const skipGemini = this.aiMode === 'claude-solo';
         const skipClaude = this.aiMode === 'gemini-solo';
+        const isDual = !skipGemini && !skipClaude && !isSolo;
 
         for (let round = 1; round <= maxRounds; round++) {
             if (!this.running) break;
@@ -216,68 +268,61 @@ class DebateEngine {
             this.round = round;
             callbacks.onRoundStart(round, maxRounds);
 
-            // --- Gemini turn ---
-            if (!skipGemini) {
+            if (isDual) {
+                // === Dual 모드: Claude분석 → Gemini응답 → Claude구현 ===
+
+                // Step 1: Claude — 프로젝트 파일 읽고 분석
+                callbacks.onStatusChange(`💭 대화중이에요... | Claude 프로젝트 분석중 | Round ${round}/${maxRounds}`);
+                await this._runClaude(callbacks, {
+                    suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 결과를 상세하게 공유하세요. Gemini(디자이너)가 이 분석을 보고 응답합니다.',
+                    projectContext, projectPath: this.projectPath,
+                });
+                if (!this.running) break;
+
+                // Step 2: Gemini — Claude의 분석을 보고 응답
                 if (!this.geminiApiKey) {
-                    callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다. Settings에서 설정해주세요.'), 'gemini');
+                    callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
                     break;
                 }
-
                 callbacks.onStatusChange(`💭 대화중이에요... | Gemini 응답중 | Round ${round}/${maxRounds}`);
-
-                const geminiSuffix = isSolo ? SOLO_SUFFIX : modeConfig.geminiSuffix;
-                const geminiDone = await new Promise((resolve) => {
-                    const handle = streamGemini(
-                        this.geminiApiKey,
-                        this.history.getAll(),
-                        {
-                            onToken: (token) => callbacks.onGeminiToken(token),
-                            onComplete: (text) => {
-                                this.history.add('gemini', text);
-                                callbacks.onGeminiComplete(text);
-                                resolve(true);
-                            },
-                            onError: (err) => {
-                                this.history.add('gemini', '[응답 실패]');
-                                callbacks.onError(err, 'gemini');
-                                resolve(true);
-                            },
-                        },
-                        { systemPromptSuffix: geminiSuffix, projectContext, projectPath: this.projectPath }
-                    );
-                    this._activeHandles.push(handle);
+                await this._runGemini(callbacks, {
+                    suffix: modeConfig.geminiSuffix,
+                    projectContext, projectPath: this.projectPath,
                 });
-
                 if (!this.running) break;
-            }
 
-            // --- Claude turn ---
-            if (!skipClaude) {
-                callbacks.onStatusChange(`💭 대화중이에요... | Claude 응답중 | Round ${round}/${maxRounds}`);
-
-                const claudeSuffix = isSolo ? SOLO_SUFFIX : modeConfig.claudeSuffix;
-                await new Promise((resolve) => {
-                    const handle = streamClaude(
-                        this.history.getAll(),
-                        {
-                            onToken: (token) => callbacks.onClaudeToken(token),
-                            onComplete: (text) => {
-                                this.history.add('claude', text);
-                                callbacks.onClaudeComplete(text);
-                                resolve();
-                            },
-                            onError: (err) => {
-                                this.history.add('claude', '[응답 실패]');
-                                callbacks.onError(err, 'claude');
-                                resolve();
-                            },
-                        },
-                        { systemPromptSuffix: claudeSuffix, projectContext, projectPath: this.projectPath }
-                    );
-                    this._activeHandles.push(handle);
+                // Step 3: Claude — Gemini 결과를 받아 구현
+                callbacks.onStatusChange(`💭 대화중이에요... | Claude 구현중 | Round ${round}/${maxRounds}`);
+                await this._runClaude(callbacks, {
+                    suffix: modeConfig.claudeSuffix,
+                    projectContext, projectPath: this.projectPath,
                 });
-
                 if (!this.running) break;
+
+            } else {
+                // === Solo 모드 ===
+
+                if (!skipGemini) {
+                    if (!this.geminiApiKey) {
+                        callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
+                        break;
+                    }
+                    callbacks.onStatusChange(`💭 대화중이에요... | Gemini 응답중 | Round ${round}/${maxRounds}`);
+                    await this._runGemini(callbacks, {
+                        suffix: SOLO_SUFFIX,
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
+                }
+
+                if (!skipClaude) {
+                    callbacks.onStatusChange(`💭 대화중이에요... | Claude 응답중 | Round ${round}/${maxRounds}`);
+                    await this._runClaude(callbacks, {
+                        suffix: SOLO_SUFFIX,
+                        projectContext, projectPath: this.projectPath,
+                    });
+                    if (!this.running) break;
+                }
             }
         }
 
