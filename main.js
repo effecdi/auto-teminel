@@ -17,6 +17,15 @@ const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-rout
 process.stdout?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
 process.stderr?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
 
+// Catch unhandled rejections and exceptions to prevent app crash
+process.on('unhandledRejection', (reason, promise) => {
+    try { console.error('[Main] Unhandled Rejection:', reason); } catch (_) {}
+});
+process.on('uncaughtException', (err) => {
+    try { console.error('[Main] Uncaught Exception:', err); } catch (_) {}
+    // Don't exit — let Electron handle graceful recovery
+});
+
 const store = new Store();
 let mainWindow;
 
@@ -1052,9 +1061,11 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
         });
         disposables.push(onDataDisposable);
 
+        entry._spawnTime = Date.now();
         const onExitDisposable = proc.onExit(({ exitCode, signal }) => {
             console.log(`[Main] PTY exited for project ${projectId}: code=${exitCode}, signal=${signal}`);
             const wasManualKill = entry.manualKill;
+            const uptime = Date.now() - (entry._spawnTime || 0);
             entry.alive = false;
             entry.process = null;
 
@@ -1064,9 +1075,16 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
             // Broadcast to remote WS clients
             broadcastEvent('terminal.exit', projectId, { exitCode, signal });
 
-            // Auto-restart on abnormal exit
+            // Auto-restart on abnormal exit (skip if uptime < 5s to prevent crash loops)
             if (exitCode !== 0 && !wasManualKill && autoRestartEnabled) {
-                attemptAutoRestart(projectId, entry.projectPath, entry.claudeArgs, cols, rows);
+                if (uptime < 5000) {
+                    console.log(`[Main] PTY crashed too quickly (${uptime}ms) for ${projectId} — skipping auto-restart to prevent loop`);
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('autoRestart.maxRetriesReached', { projectId });
+                    }
+                } else {
+                    attemptAutoRestart(projectId, entry.projectPath, entry.claudeArgs, cols, rows);
+                }
             }
         });
         disposables.push(onExitDisposable);
@@ -2309,7 +2327,9 @@ function getOrCreateEngine(projectId) {
     return debateEngines.get(projectId);
 }
 
-function makeDebateCallbacks(projectId) {
+function makeDebateCallbacks(projectId, opts) {
+    const { autoExecute, mode } = opts || {};
+
     return {
         onGeminiToken: (token) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2340,6 +2360,66 @@ function makeDebateCallbacks(projectId) {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('ai.debateComplete', { projectId });
             }
+
+            // Auto-execute: collab/debate/review 완료 후 대화 결과를 터미널에서 실행
+            if (autoExecute) {
+                const engine = debateEngines.get(projectId);
+                if (!engine) return;
+
+                const history = engine.getHistory();
+                const originalTask = engine.getTask();
+
+                // AI 응답만 추출
+                const aiResponses = history
+                    .filter(m => m.role !== 'user')
+                    .map(m => {
+                        const label = m.role === 'gemini' ? 'Gemini(시니어 디자이너)' : 'Claude(시니어 풀스텍 개발자)';
+                        return `[${label}]:\n${m.content}`;
+                    })
+                    .join('\n\n---\n\n');
+
+                if (!aiResponses.trim()) return;
+
+                const modeLabel = mode === 'debate' ? '토론' : mode === 'review' ? '리뷰' : '협업';
+                const executionPrompt = `다음은 사용자의 요청에 대해 AI들이 ${modeLabel} 모드로 논의한 결과입니다.
+이 대화에서 합의/제안된 코드를 실제 프로젝트에 적용하세요.
+
+## 사용자 원본 요청
+${originalTask}
+
+## AI ${modeLabel} 결과
+${aiResponses}
+
+## 실행 지시사항
+1. 위 대화에서 제안/합의된 코드 변경사항을 실제 파일에 적용하세요.
+2. 파일 경로가 명시된 경우 해당 경로에 생성/수정하세요.
+3. CSS/스타일, 로직, 구조 변경사항을 모두 반영하세요.
+4. 구현 후 빌드/문법 에러가 없는지 확인하세요.
+5. 명시되지 않은 세부사항은 best practice에 따라 구현하세요.`;
+
+                const projects = store.get('projects', []);
+                const project = projects.find(p => p.id === projectId);
+                const projectName = project ? project.name : projectId;
+                const projectPath = project ? project.path : null;
+
+                // PTY가 없으면 자동으로 스폰
+                const ptyEntry = ptyPool.get(projectId);
+                if ((!ptyEntry || !ptyEntry.alive) && projectPath) {
+                    console.log(`[AI] No PTY for ${projectId}, auto-spawning for execution...`);
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('ai.statusUpdate', { projectId, message: '🔧 터미널 자동 연결 중...' });
+                    }
+                    spawnPtyForProject(projectId, projectPath, [], 120, 30);
+                }
+
+                taskQueue.enqueue(projectId, projectName, executionPrompt);
+
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('ai.executionQueued', { projectId, mode: modeLabel });
+                }
+
+                console.log(`[AI] ${modeLabel} complete → execution queued for ${projectId}`);
+            }
         },
         onError: (error, source) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2360,24 +2440,49 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
 
     const geminiApiKey = store.get('geminiApiKey', '');
     const maxRounds = store.get('aiMaxRounds', 1);
-    const includeSource = store.get('aiIncludeSource', false);
+    const includeSource = store.get('aiIncludeSource', true);
 
-    let projectContext = null;
-    if (projectPath && operationType) {
-        try {
-            projectContext = buildProjectContext(projectPath, projectName || projectId, operationType, { includeSource });
-        } catch (e) {
-            console.error('[AI] Failed to build project context:', e.message);
+    // projectPath가 없으면 store에서 프로젝트 경로 자동 탐색
+    let effectivePath = projectPath;
+    let effectiveName = projectName || projectId;
+    if (!effectivePath) {
+        const projects = store.get('projects', []);
+        const proj = projects.find(p => p.id === projectId);
+        if (proj && proj.path) {
+            effectivePath = proj.path;
+            effectiveName = proj.name || projectId;
         }
     }
 
-    const callbacks = makeDebateCallbacks(projectId);
+    let projectContext = null;
+    const effectiveOp = operationType || 'development';
+    if (effectivePath) {
+        try {
+            projectContext = buildProjectContext(effectivePath, effectiveName, effectiveOp, { includeSource });
+            console.log(`[AI] Project context built: ${effectivePath} (${effectiveOp}, includeSource=${includeSource})`);
+        } catch (e) {
+            console.error('[AI] Failed to build project context:', e.message);
+        }
+    } else {
+        console.warn('[AI] No project path found — AI will respond without project context');
+    }
+
+    const effectiveMode = mode || 'collab';
+    const callbacks = makeDebateCallbacks(projectId, {
+        autoExecute: true,
+        mode: effectiveMode,
+    });
     engine.start(task, callbacks, {
-        mode: mode || 'collab',
+        mode: effectiveMode,
         aiMode: aiMode || 'dual',
         maxRounds,
         geminiApiKey,
         projectContext,
+    }).catch(err => {
+        safelog('[AI] start error:', err.message);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ai.error', { projectId, message: err.message, source: 'start' });
+        }
     });
 
     return { success: true, sessionId: engine.sessionId };
@@ -2385,10 +2490,24 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
 
 ipcMain.handle('ai.continue', async (event, { projectId, message }) => {
     const engine = getOrCreateEngine(projectId);
-    if (engine.isRunning) return { success: false, error: 'Already running' };
 
-    const callbacks = makeDebateCallbacks(projectId);
-    engine.continue(message, callbacks);
+    // If engine is still marked running from previous round, force-reset
+    if (engine.isRunning) {
+        engine.stop();
+    }
+
+    const callbacks = makeDebateCallbacks(projectId, {
+        autoExecute: true,
+        mode: engine.mode,
+    });
+    // Do not await — let it run in background, IPC events will stream results
+    engine.continue(message, callbacks).catch(err => {
+        safelog('[AI] continue error:', err.message);
+        // Send error to renderer so user can see it
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ai.error', { projectId, message: err.message, source: 'continue' });
+        }
+    });
     return { success: true };
 });
 
@@ -2534,7 +2653,7 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
         if (engine.isRunning) return { success: false, error: 'Already running' };
 
         const geminiApiKey = store.get('geminiApiKey', '');
-        const includeSource = store.get('aiIncludeSource', false);
+        const includeSource = store.get('aiIncludeSource', true);
         const projects = store.get('projects', []);
         const project = projects.find(p => p.id === projectId);
 
@@ -2547,7 +2666,10 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
             }
         }
 
-        const callbacks = makeDebateCallbacks(projectId);
+        const callbacks = makeDebateCallbacks(projectId, {
+            autoExecute: true,
+            mode: 'gemini-solo',
+        });
         engine.start(text, callbacks, {
             mode: 'collab',
             aiMode: 'gemini-solo',
@@ -2564,7 +2686,7 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
         if (engine.isRunning) return { success: false, error: 'Already running' };
 
         const geminiApiKey = store.get('geminiApiKey', '');
-        const includeSource = store.get('aiIncludeSource', false);
+        const includeSource = store.get('aiIncludeSource', true);
         const projects = store.get('projects', []);
         const project = projects.find(p => p.id === projectId);
 

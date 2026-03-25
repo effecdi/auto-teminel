@@ -159,7 +159,7 @@ function classifyTask(text) {
  * @returns {string} - Prompt for Claude CLI terminal execution
  */
 function buildExecutionPrompt(originalTask, geminiDesign) {
-    return `다음은 사용자의 요청과 Gemini(디자이너)가 작성한 기획/설계입니다.
+    return `다음은 사용자의 요청과 Gemini(시니어 디자이너)가 작성한 기획/설계입니다.
 이 설계를 바탕으로 실제 코드를 구현하세요.
 
 ## 사용자 원본 요청

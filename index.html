@@ -3,14 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude CLI Terminal</title>
+    <title>auto-terminel</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="node_modules/xterm/css/xterm.css">
+    <!-- Google Fonts: Inter (UI) + Roboto Mono (Code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         /* ===== AI Chat Styles ===== */
 
-        .toolbar-btn-ai { color: #58a6ff; font-weight: 600; }
-        .toolbar-btn-ai.active { background: rgba(88,166,255,0.15); color: #79c0ff; border-color: #58a6ff; }
+        .toolbar-btn-ai { color: #00e676; font-weight: 600; }
+        .toolbar-btn-ai.active { background: rgba(0,230,118,0.15); color: #69f0ae; border-color: #00e676; }
         .toolbar-separator { color: var(--text-muted); margin: 0 4px; user-select: none; font-size: 12px; }
 
         #ai-chat-container {
@@ -42,7 +46,7 @@
             cursor: pointer;
             outline: none;
         }
-        .ai-select:focus { border-color: var(--accent); }
+        .ai-select:focus { border-color: var(--accent-green); }
 
         .ai-round-info {
             font-size: 11px;
@@ -97,34 +101,40 @@
         }
         .ai-msg-user {
             align-self: flex-end;
-            background: #1f3a5f;
-            color: #c9d1d9;
+            background: #2a3a2a;
+            color: #e0e0e0;
             border-bottom-right-radius: 2px;
         }
         .ai-msg-gemini {
             align-self: flex-start;
-            background: #2d1b4e;
-            color: #d2b3ff;
+            background: #2e1a3d;
+            color: #ea80fc;
             border-bottom-left-radius: 2px;
         }
         .ai-msg-claude {
             align-self: flex-start;
-            background: #0d2d3d;
-            color: #7ee8fa;
+            background: #1a2e2e;
+            color: #69f0ae;
             border-bottom-left-radius: 2px;
         }
         .ai-msg-error {
             align-self: center;
-            background: #3d1418;
-            color: #f85149;
+            background: #3d1a1a;
+            color: #ff5252;
             font-size: 12px;
             padding: 6px 12px;
         }
         .ai-msg-system {
             align-self: center;
-            color: var(--text-muted);
-            font-size: 11px;
-            padding: 4px 8px;
+            color: #00e676;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 8px 16px;
+            background: rgba(0, 230, 118, 0.1);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+            border-radius: 8px;
+            text-align: center;
+            margin: 8px 0;
         }
 
         .ai-msg-label {
@@ -133,8 +143,8 @@
             margin-bottom: 4px;
             opacity: 0.7;
         }
-        .ai-msg-gemini .ai-msg-label { color: #a371f7; }
-        .ai-msg-claude .ai-msg-label { color: #58a6ff; }
+        .ai-msg-gemini .ai-msg-label { color: #ea80fc; }
+        .ai-msg-claude .ai-msg-label { color: #69f0ae; }
 
         /* Streaming cursor */
         .ai-msg-streaming::after {
@@ -148,7 +158,7 @@
 
         /* Code blocks inside AI messages */
         .ai-msg pre {
-            background: #161b22;
+            background: #1a1a1a;
             border: 1px solid var(--border-primary);
             border-radius: 6px;
             padding: 8px 10px;
@@ -158,7 +168,7 @@
             line-height: 1.5;
         }
         .ai-msg code {
-            font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+            font-family: var(--font-mono, 'Roboto Mono', 'Menlo', 'Monaco', monospace);
             font-size: 12px;
         }
         .ai-msg p code {
@@ -173,6 +183,97 @@
         }
         .ai-msg strong { font-weight: 700; }
         .ai-msg ul, .ai-msg ol { padding-left: 20px; margin: 4px 0; }
+
+        /* Recommendation buttons */
+        .ai-recommendations {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px 4px;
+            justify-content: center;
+        }
+        .ai-rec-btn {
+            background: rgba(0, 230, 118, 0.1);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+            color: #00e676;
+            border-radius: 16px;
+            padding: 5px 14px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .ai-rec-btn:hover {
+            background: rgba(0, 230, 118, 0.25);
+            border-color: #00e676;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 230, 118, 0.2);
+        }
+        .ai-rec-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Message collapse/expand */
+        .ai-msg-collapsed {
+            max-height: 200px;
+            overflow: hidden;
+            position: relative;
+            -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+            mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+        }
+        .ai-msg-expand-btn {
+            background: none;
+            border: 1px solid var(--border-primary);
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 3px 10px;
+            border-radius: 10px;
+            margin-top: 4px;
+            display: block;
+            width: fit-content;
+            transition: color 0.2s;
+        }
+        .ai-msg-expand-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+
+        /* History collapse */
+        .ai-history-collapse {
+            text-align: center;
+            padding: 6px 0;
+        }
+        .ai-history-toggle-btn {
+            background: rgba(110, 118, 129, 0.15);
+            border: 1px solid var(--border-primary);
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 4px 14px;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+        .ai-history-toggle-btn:hover {
+            background: rgba(110, 118, 129, 0.3);
+            color: var(--text-secondary);
+        }
+
+        /* AI Chat status indicator */
+        .ai-chat-status {
+            text-align: center;
+            font-size: 12px;
+            color: #58a6ff;
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: rgba(88, 166, 255, 0.08);
+            border-radius: 8px;
+            animation: ai-status-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes ai-status-pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
 
         .form-select {
             background: var(--bg-primary);
@@ -205,15 +306,15 @@
             font-size: 10px;
             font-weight: 600;
         }
-        .route-badge.claude-solo { background: rgba(0,200,83,0.15); color: #00c853; }
-        .route-badge.gemini-solo { background: rgba(66,133,244,0.15); color: #4285f4; }
-        .route-badge.pipeline { background: rgba(163,113,247,0.15); color: #a371f7; }
+        .route-badge.claude-solo { background: rgba(0,230,118,0.15); color: #00e676; }
+        .route-badge.gemini-solo { background: rgba(224,64,251,0.15); color: #e040fb; }
+        .route-badge.pipeline { background: rgba(224,64,251,0.15); color: #ea80fc; }
 
         /* ===== Timeline Panel ===== */
         .timeline-panel {
             border-bottom: 1px solid var(--border-primary);
             background: var(--bg-primary);
-            max-height: 40vh;
+            max-height: 25vh;
             display: flex;
             flex-direction: column;
             transition: max-height 0.3s ease;
@@ -265,7 +366,7 @@
             white-space: pre-wrap;
         }
         .timeline-entry.user {
-            background: #1a1a2e;
+            background: #2a2a2a;
             border-left-color: #666;
         }
         .timeline-entry.gemini-design {
@@ -290,9 +391,17 @@
             margin-bottom: 2px;
             opacity: 0.7;
         }
-        .timeline-entry.gemini-design .timeline-entry-label { color: #a371f7; }
-        .timeline-entry.claude-execution .timeline-entry-label { color: #3fb950; }
+        .timeline-entry.gemini-design .timeline-entry-label { color: #ea80fc; }
+        .timeline-entry.claude-execution .timeline-entry-label { color: #00e676; }
         .timeline-entry.user .timeline-entry-label { color: #8b949e; }
+
+        /* Inline route badge inside user entries */
+        .timeline-route-badge {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-top: 3px;
+            opacity: 0.5;
+        }
 
         /* Streaming cursor in timeline */
         .timeline-entry.streaming .timeline-entry-body::after {
@@ -302,7 +411,7 @@
 
         /* Code blocks in timeline */
         .timeline-entry pre {
-            background: #161b22;
+            background: #1a1a1a;
             border: 1px solid var(--border-primary);
             border-radius: 4px;
             padding: 6px 8px;
@@ -311,7 +420,7 @@
             font-size: 11px;
         }
         .timeline-entry code {
-            font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+            font-family: var(--font-mono, 'Roboto Mono', 'Menlo', 'Monaco', monospace);
             font-size: 11px;
         }
     </style>
@@ -320,7 +429,7 @@
     <!-- Titlebar -->
     <div class="titlebar">
         <div class="titlebar-drag-region"></div>
-        <div class="titlebar-title">Claude CLI Terminal</div>
+        <div class="titlebar-title">auto-terminel <span style="font-weight:400;color:var(--text-muted);font-size:11px;letter-spacing:0.05em;">Claude CLI</span></div>
         <div class="titlebar-actions">
             <div class="status-indicator" id="statusIndicator">
                 <span class="status-dot disconnected"></span>
@@ -425,8 +534,7 @@
                         <option value="gemini-solo">Gemini Solo</option>
                     </select>
                     <select class="ai-select" id="aiOperationType" title="Operation type">
-                        <option value="">No project context</option>
-                        <option value="development">💻 개발</option>
+                        <option value="development" selected>💻 개발</option>
                         <option value="modification">🔧 수정</option>
                         <option value="verification">✅ 검증</option>
                         <option value="enhancement">🚀 고도화</option>
@@ -441,7 +549,7 @@
                     <div class="ai-chat-placeholder">
                         <div class="placeholder-icon">🤖</div>
                         <h2>AI Chat</h2>
-                        <p>Claude (개발자) + Gemini (디자이너) 듀얼 AI 채팅</p>
+                        <p>Claude (시니어 풀스텍 개발자) + Gemini (시니어 디자이너) 듀얼 AI 채팅</p>
                         <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
                     </div>
                 </div>
@@ -451,7 +559,7 @@
             <div class="prompt-area">
                 <div class="prompt-row">
                     <textarea id="taskInput" placeholder="작업 요청... (Enter to send — Auto routing)" rows="1"></textarea>
-                    <button class="task-send-btn" id="taskSendBtn" onclick="aiChatMode ? sendAiMessage() : sendTask()">Send</button>
+                    <button class="task-send-btn" id="taskSendBtn" onclick="handleSend()">Send</button>
                 </div>
                 <div class="prompt-controls">
                     <button class="queue-ctrl-btn" id="queuePauseBtn" onclick="toggleQueuePause()">⏸ Pause</button>

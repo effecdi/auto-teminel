@@ -28,12 +28,12 @@ function buildClaudePrompt(messages, options) {
     for (const msg of recent) {
         const label =
             msg.role === 'user' ? '[사용자]' :
-            msg.role === 'gemini' ? '[Gemini(디자이너)]' :
-            '[Claude(개발자)]';
+            msg.role === 'gemini' ? '[Gemini(시니어 디자이너)]' :
+            '[Claude(시니어 풀스텍 개발자)]';
         parts.push(`${label}: ${msg.content}`);
     }
 
-    parts.push('\n위 대화를 바탕으로 Claude(개발자)로서 답변해주세요. 구체적인 코드와 실행 가능한 솔루션을 제시하세요.');
+    parts.push('\n위 대화를 바탕으로 Claude(시니어 풀스텍 개발자)로서 답변해주세요. 구체적인 코드와 실행 가능한 솔루션을 제시하세요.');
     return parts.join('\n\n');
 }
 
@@ -184,12 +184,12 @@ function toGeminiHistory(messages) {
 
         if (last && last.role === role) {
             const prevText = last.parts.map(p => p.text || '').join('');
-            const label = msg.role === 'claude' ? '[Claude(개발자)]' : '[사용자]';
+            const label = msg.role === 'claude' ? '[Claude(시니어 풀스텍 개발자)]' : '[사용자]';
             last.parts = [{ text: `${prevText}\n\n${label}: ${msg.content}` }];
         } else {
             const label =
                 msg.role === 'user' ? '[사용자]' :
-                msg.role === 'claude' ? '[Claude(개발자)]' : '';
+                msg.role === 'claude' ? '[Claude(시니어 풀스텍 개발자)]' : '';
             mapped.push({
                 role,
                 parts: [{ text: label ? `${label}: ${msg.content}` : msg.content }]

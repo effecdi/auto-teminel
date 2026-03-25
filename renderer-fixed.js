@@ -61,6 +61,17 @@ let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}
 let aiChatStreaming = null;          // { role, div } — currently streaming message
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
 
+// AI Recommendation Buttons
+const AI_RECOMMENDATION_BUTTONS = [
+    '디자인 전면재수정',
+    '전체페이지 검증',
+    '보안강화',
+    '개발추가',
+    '개발기능강화',
+    '자동화 구축',
+    '코드 리뷰',
+];
+
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
 
@@ -264,30 +275,30 @@ async function getOrCreateTerminal(project) {
     document.getElementById('terminal-container').appendChild(wrapper);
 
     const term = new Terminal({
-        fontFamily: "'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', 'Courier New', monospace",
+        fontFamily: "'Roboto Mono', 'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', monospace",
         fontSize: fontSize,
         theme: {
-            background: '#0d1117',
-            foreground: '#c9d1d9',
-            cursor: '#58a6ff',
-            cursorAccent: '#0d1117',
-            selectionBackground: '#264f78',
-            black: '#484f58',
-            red: '#ff7b72',
-            green: '#3fb950',
-            yellow: '#d29922',
-            blue: '#58a6ff',
-            magenta: '#bc8cff',
-            cyan: '#39c5cf',
-            white: '#b1bac4',
-            brightBlack: '#6e7681',
-            brightRed: '#ffa198',
-            brightGreen: '#56d364',
-            brightYellow: '#e3b341',
-            brightBlue: '#79c0ff',
-            brightMagenta: '#d2a8ff',
-            brightCyan: '#56d4dd',
-            brightWhite: '#f0f6fc'
+            background: '#101010',
+            foreground: '#e0e0e0',
+            cursor: '#00e676',
+            cursorAccent: '#101010',
+            selectionBackground: 'rgba(0, 230, 118, 0.3)',
+            black: '#545454',
+            red: '#ff5252',
+            green: '#00e676',
+            yellow: '#ffd740',
+            blue: '#448aff',
+            magenta: '#e040fb',
+            cyan: '#18ffff',
+            white: '#bdbdbd',
+            brightBlack: '#757575',
+            brightRed: '#ff8a80',
+            brightGreen: '#69f0ae',
+            brightYellow: '#ffe57f',
+            brightBlue: '#82b1ff',
+            brightMagenta: '#ea80fc',
+            brightCyan: '#84ffff',
+            brightWhite: '#fafafa'
         },
         cursorBlink: true,
         cursorStyle: 'bar',
@@ -416,12 +427,21 @@ ipcRenderer.on('terminal.exit', (event, { projectId, exitCode, signal }) => {
 //  Spawn PTY for Project
 // ===================================================================
 
+const _spawningProjects = new Set(); // Guard against concurrent spawn calls
+
 async function ensurePtyRunning(project) {
     const entry = termPool.get(project.id);
     if (entry && entry.isAlive) {
         console.log(`PTY already alive for ${project.name}`);
         return;
     }
+
+    // Prevent double-spawn if selectProject is called rapidly
+    if (_spawningProjects.has(project.id)) {
+        console.log(`PTY spawn already in progress for ${project.name}`);
+        return;
+    }
+    _spawningProjects.add(project.id);
 
     updateStatus('running', 'Starting...');
     document.getElementById('terminalStatus').textContent = 'Starting...';
@@ -459,6 +479,8 @@ async function ensurePtyRunning(project) {
         updateStatus('error', 'Spawn Failed');
         document.getElementById('terminalStatus').textContent = 'Error';
     }
+
+    _spawningProjects.delete(project.id);
 }
 
 // ===================================================================
@@ -609,7 +631,7 @@ function renderImagePreviewBar() {
             thumb.appendChild(img);
         } else {
             const icon = document.createElement('div');
-            icon.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:var(--bg-primary,#0d1117);border:1px solid var(--border-primary,#30363d);border-radius:6px;font-size:20px;';
+            icon.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:var(--bg-primary,#1a1a1a);border:1px solid var(--border-primary,#444444);border-radius:6px;font-size:20px;';
             if (videoExts.test(fileName)) icon.textContent = '🎬';
             else if (audioExts.test(fileName)) icon.textContent = '🎵';
             else icon.textContent = '📄';
@@ -1094,6 +1116,12 @@ async function deleteProject(projectId) {
         entry.wrapperEl.remove();
         termPool.delete(projectId);
     }
+
+    // Clean up all per-project state maps to prevent memory leaks
+    aiChatMessages.delete(projectId);
+    aiChatStarted.delete(projectId);
+    attachedImagesMap.delete(projectId);
+    idleState.delete(projectId);
 
     if (currentProject && currentProject.id === projectId) {
         currentProject = null;
@@ -2167,10 +2195,12 @@ async function sendUnifiedTask(text) {
     const routeMode = document.getElementById('routeMode').value;
     const projectId = currentProject.id;
 
-    // Expand timeline panel so user sees the flow
-    expandTimelinePanel();
+    // Only expand timeline for pipeline/gemini modes (not claude-solo — terminal is visible)
+    if (routeMode !== 'claude-solo' && routeMode !== 'auto') {
+        expandTimelinePanel();
+    }
 
-    // Add user input to timeline
+    // Add user input to timeline (compact — don't expand for claude-solo)
     appendTimelineEntry('user', text);
 
     // Ensure PTY is running for claude-solo and pipeline modes
@@ -2183,9 +2213,9 @@ async function sendUnifiedTask(text) {
         }
     }
 
-    // Show stop button
+    // Show stop button only for non-claude-solo modes
     const stopBtn = document.getElementById('pipelineStopBtn');
-    if (stopBtn) stopBtn.style.display = '';
+    if (stopBtn) stopBtn.style.display = (routeMode === 'claude-solo') ? 'none' : '';
 
     // Send to main process pipeline handler
     try {
@@ -2235,6 +2265,8 @@ function clearTimeline() {
     const entries = document.getElementById('timelineEntries');
     if (entries) entries.innerHTML = '';
     timelineStreaming = null;
+    _lastTimelineRoute = '';
+    _lastUserEntryDiv = null;
 
     // Collapse the panel after clearing
     const panel = document.getElementById('timeline-panel');
@@ -2246,6 +2278,10 @@ function clearTimeline() {
     if (stopBtn) stopBtn.style.display = 'none';
 }
 
+// Track last route to avoid repetitive route-info entries
+let _lastTimelineRoute = '';
+let _lastUserEntryDiv = null;
+
 /**
  * Append an entry to the timeline panel.
  * @param {string} type - 'user' | 'gemini-design' | 'claude-execution' | 'route-info' | 'error'
@@ -2255,30 +2291,40 @@ function appendTimelineEntry(type, content) {
     const entries = document.getElementById('timelineEntries');
     if (!entries) return;
 
+    // route-info: merge into the last user entry as a badge instead of separate line
+    if (type === 'route-info') {
+        if (_lastUserEntryDiv) {
+            let badge = _lastUserEntryDiv.querySelector('.timeline-route-badge');
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 'timeline-route-badge';
+                _lastUserEntryDiv.appendChild(badge);
+            }
+            badge.textContent = content;
+        }
+        _lastTimelineRoute = content;
+        return;
+    }
+
     const div = document.createElement('div');
     div.className = `timeline-entry ${type}`;
 
     const labels = {
-        'user': 'User',
+        'user': 'Task',
         'gemini-design': 'Gemini (설계)',
         'claude-execution': 'Claude (실행)',
-        'route-info': 'Route',
         'error': 'Error'
     };
 
-    if (type !== 'route-info') {
-        const label = document.createElement('div');
-        label.className = 'timeline-entry-label';
-        label.textContent = labels[type] || type;
-        div.appendChild(label);
-    }
+    const label = document.createElement('div');
+    label.className = 'timeline-entry-label';
+    label.textContent = labels[type] || type;
+    div.appendChild(label);
 
     const body = document.createElement('div');
     body.className = 'timeline-entry-body';
 
-    if (type === 'route-info') {
-        body.textContent = content;
-    } else if (type === 'error') {
+    if (type === 'error') {
         body.textContent = content;
     } else if (type === 'user') {
         body.textContent = content;
@@ -2289,6 +2335,10 @@ function appendTimelineEntry(type, content) {
     div.appendChild(body);
     entries.appendChild(div);
     entries.scrollTop = entries.scrollHeight;
+
+    if (type === 'user') {
+        _lastUserEntryDiv = div;
+    }
 
     return div;
 }
@@ -2362,17 +2412,40 @@ ipcRenderer.on('pipeline.routed', (event, { projectId, mode, confidence, reason 
             'gemini-solo': 'Gemini Solo',
             'pipeline': 'Pipeline'
         };
-        const cssClass = mode.replace('-', '-');
         indicator.innerHTML = `<span class="route-badge ${mode}">${modeLabels[mode] || mode}</span> ${reason}`;
     }
 
-    // Add route info to timeline
+    // Update timeline title to reflect actual routing mode
+    const title = document.querySelector('.timeline-title');
+    if (title) {
+        const titleMap = {
+            'claude-solo': 'AI Pipeline — Claude Solo',
+            'gemini-solo': 'AI Pipeline — Gemini Solo',
+            'pipeline': 'AI Pipeline — Pipeline Mode'
+        };
+        title.textContent = titleMap[mode] || 'AI Pipeline';
+    }
+
+    // Claude Solo: auto-collapse timeline (terminal output is sufficient)
+    // Pipeline/Gemini Solo: expand to show design output
+    if (mode === 'claude-solo') {
+        const panel = document.getElementById('timeline-panel');
+        const btn = document.getElementById('timelineToggleBtn');
+        if (panel && !panel.classList.contains('collapsed')) {
+            panel.classList.add('collapsed');
+            if (btn) btn.textContent = '▶';
+        }
+    } else {
+        expandTimelinePanel();
+    }
+
+    // Add route info as inline badge on last user entry
     const modeNames = {
-        'claude-solo': 'Claude Solo (터미널 직접 실행)',
-        'gemini-solo': 'Gemini Solo (기획/디자인)',
-        'pipeline': 'Pipeline (Gemini 설계 → Claude 실행)'
+        'claude-solo': 'Claude Solo',
+        'gemini-solo': 'Gemini Solo',
+        'pipeline': 'Pipeline (Gemini → Claude)'
     };
-    appendTimelineEntry('route-info', `→ ${modeNames[mode] || mode} (${Math.round(confidence * 100)}% | ${reason})`);
+    appendTimelineEntry('route-info', `→ ${modeNames[mode] || mode} (${reason})`);
 });
 
 ipcRenderer.on('pipeline.geminiToken', (event, { projectId, token }) => {
@@ -2431,22 +2504,29 @@ function toggleAiChat() {
     const terminalOnlyBtns = document.getElementById('terminalOnlyBtns');
     const aiChatBtn = document.querySelector('.toolbar-btn[onclick="toggleAiChat()"]');
 
+    const unifiedControls = document.querySelector('.unified-controls');
+    const toolbarSep = document.getElementById('terminalToolbarSep');
+
     if (aiChatMode) {
-        // Show AI Chat, hide Terminal + Timeline
+        // Show AI Chat, hide Terminal + Timeline + route controls
         if (terminalContainer) terminalContainer.style.display = 'none';
         if (timelinePanel) timelinePanel.style.display = 'none';
         if (aiChatContainer) aiChatContainer.style.display = 'flex';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
+        if (unifiedControls) unifiedControls.style.display = 'none';
+        if (toolbarSep) toolbarSep.style.display = 'none';
         if (aiChatBtn) aiChatBtn.classList.add('active');
 
         // Render messages for current project
         renderAiChatMessages();
     } else {
-        // Show Terminal + Timeline, hide AI Chat
+        // Show Terminal + Timeline + route controls, hide AI Chat
         if (terminalContainer) terminalContainer.style.display = '';
         if (timelinePanel) timelinePanel.style.display = '';
         if (aiChatContainer) aiChatContainer.style.display = 'none';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
+        if (unifiedControls) unifiedControls.style.display = '';
+        if (toolbarSep) toolbarSep.style.display = '';
         if (aiChatBtn) aiChatBtn.classList.remove('active');
 
         // Re-fit terminal
@@ -2471,12 +2551,38 @@ async function sendAiMessage() {
     textarea.value = '';
     textarea.style.height = 'auto';
 
+    // Remove recommendation buttons when sending new message
+    removeRecommendationButtons();
+
     const projectId = currentProject.id;
 
     // Add user message to local state
     if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
     aiChatMessages.get(projectId).push({ role: 'user', content: text, timestamp: Date.now() });
     appendAiMessage('user', text);
+
+    // Show immediate "(대화중이에요...)" status before AI responds
+    const roundInfo = document.getElementById('aiRoundInfo');
+    if (roundInfo) {
+        roundInfo.textContent = '💭 대화중이에요...';
+        roundInfo.style.color = '#58a6ff';
+    }
+    // Show status indicator in chat area immediately
+    const chatContainer = document.getElementById('aiChatMessages');
+    if (chatContainer) {
+        let statusEl = document.getElementById('aiChatStatus');
+        if (!statusEl) {
+            statusEl = document.createElement('div');
+            statusEl.id = 'aiChatStatus';
+            statusEl.className = 'ai-chat-status';
+            chatContainer.appendChild(statusEl);
+        }
+        statusEl.textContent = '💭 대화중이에요... AI가 응답을 준비하고 있습니다';
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+    // Show stop button
+    const stopBtn = document.getElementById('aiStopBtn');
+    if (stopBtn) stopBtn.style.display = '';
 
     // Get mode settings from selects
     const debateMode = document.getElementById('aiDebateMode').value;
@@ -2504,6 +2610,10 @@ async function sendAiMessage() {
         }
     } catch (err) {
         appendAiMessage('error', `Error: ${err.message}`);
+        // Clear status on error
+        if (roundInfo) { roundInfo.textContent = ''; roundInfo.style.color = ''; }
+        const errStatusEl = document.getElementById('aiChatStatus');
+        if (errStatusEl) errStatusEl.remove();
     }
 }
 
@@ -2524,15 +2634,65 @@ function renderAiChatMessages() {
 
     const messages = aiChatMessages.get(currentProject.id);
     if (!messages || messages.length === 0) {
-        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Claude (개발자) + Gemini (디자이너) 듀얼 AI 채팅</p><div class="placeholder-hint">아래에 메시지를 입력하세요</div></div>';
+        container.innerHTML = '<div class="ai-chat-placeholder"><div class="placeholder-icon">🤖</div><h2>AI Chat</h2><p>Claude (시니어 풀스텍 개발자) + Gemini (시니어 디자이너) 듀얼 AI 채팅</p><div class="placeholder-hint">아래에 메시지를 입력하세요</div></div>';
         return;
     }
 
-    for (const msg of messages) {
-        appendAiMessageDom(container, msg.role, msg.content);
+    // Apply history collapse if many messages
+    const shouldCollapseHistory = messages.length > 5;
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        const div = appendAiMessageDom(container, msg.role, msg.content);
+        if (shouldCollapseHistory && i < messages.length - 4) {
+            div.classList.add('ai-msg-history-hidden');
+            div.style.display = 'none';
+        }
+    }
+
+    // Add "이전 대화 보기" button if messages are collapsed
+    if (shouldCollapseHistory) {
+        const collapseBtn = document.createElement('div');
+        collapseBtn.className = 'ai-history-collapse';
+        const hiddenCount = messages.length - 4;
+        collapseBtn.innerHTML = `<button class="ai-history-toggle-btn" onclick="toggleAiHistoryCollapse(this)">▼ 이전 대화 보기 (${hiddenCount}개)</button>`;
+        container.insertBefore(collapseBtn, container.firstChild);
+    }
+
+    // Add recommendation buttons if last message is from AI
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && (lastMsg.role === 'gemini' || lastMsg.role === 'claude')) {
+        container.appendChild(createRecommendationButtons());
     }
 
     container.scrollTop = container.scrollHeight;
+}
+
+function toggleAiHistoryCollapse(btn) {
+    const container = document.getElementById('aiChatMessages');
+    if (!container) return;
+    const hiddenMsgs = container.querySelectorAll('.ai-msg-history-hidden');
+    const isHidden = hiddenMsgs.length > 0 && hiddenMsgs[0].style.display === 'none';
+
+    hiddenMsgs.forEach(el => {
+        el.style.display = isHidden ? '' : 'none';
+    });
+    btn.textContent = isHidden
+        ? `▲ 이전 대화 접기 (${hiddenMsgs.length}개)`
+        : `▼ 이전 대화 보기 (${hiddenMsgs.length}개)`;
+}
+
+function applyMessageCollapse(div, body, content) {
+    if (!content || content.length < 500) return;
+    body.classList.add('ai-msg-collapsed');
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'ai-msg-expand-btn';
+    expandBtn.textContent = '더 보기 ▼';
+    expandBtn.addEventListener('click', () => {
+        const isCollapsed = body.classList.contains('ai-msg-collapsed');
+        body.classList.toggle('ai-msg-collapsed');
+        expandBtn.textContent = isCollapsed ? '접기 ▲' : '더 보기 ▼';
+    });
+    div.appendChild(expandBtn);
 }
 
 function appendAiMessage(role, content) {
@@ -2554,7 +2714,7 @@ function appendAiMessageDom(container, role, content) {
     if (role === 'gemini' || role === 'claude') {
         const label = document.createElement('div');
         label.className = 'ai-msg-label';
-        label.textContent = role === 'gemini' ? 'Gemini (디자이너)' : 'Claude (개발자)';
+        label.textContent = role === 'gemini' ? 'Gemini (시니어 디자이너)' : 'Claude (시니어 풀스텍 개발자)';
         div.appendChild(label);
     }
 
@@ -2566,6 +2726,11 @@ function appendAiMessageDom(container, role, content) {
         body.innerHTML = renderAiMarkdown(content);
     }
     div.appendChild(body);
+
+    // Apply collapse for long messages in history render
+    if (role !== 'error' && role !== 'system') {
+        applyMessageCollapse(div, body, content);
+    }
 
     container.appendChild(div);
     return div;
@@ -2584,7 +2749,7 @@ function startStreamingMessage(role) {
 
     const label = document.createElement('div');
     label.className = 'ai-msg-label';
-    label.textContent = role === 'gemini' ? 'Gemini (디자이너)' : 'Claude (개발자)';
+    label.textContent = role === 'gemini' ? 'Gemini (시니어 디자이너)' : 'Claude (시니어 풀스텍 개발자)';
     div.appendChild(label);
 
     const body = document.createElement('div');
@@ -2616,12 +2781,43 @@ function appendStreamToken(token) {
     }
 }
 
+function createRecommendationButtons() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ai-recommendations';
+
+    for (const label of AI_RECOMMENDATION_BUTTONS) {
+        const btn = document.createElement('button');
+        btn.className = 'ai-rec-btn';
+        btn.textContent = label;
+        btn.addEventListener('click', () => {
+            const textarea = document.getElementById('taskInput');
+            if (textarea) {
+                textarea.value = label;
+                sendAiMessage();
+            }
+        });
+        wrapper.appendChild(btn);
+    }
+    return wrapper;
+}
+
+function removeRecommendationButtons() {
+    const container = document.getElementById('aiChatMessages');
+    if (!container) return;
+    const existing = container.querySelectorAll('.ai-recommendations');
+    existing.forEach(el => el.remove());
+}
+
 function finalizeStreamMessage(fullText) {
     if (!aiChatStreaming) return;
 
     const { role, div, body } = aiChatStreaming;
     div.classList.remove('ai-msg-streaming');
     body.innerHTML = renderAiMarkdown(fullText);
+
+    // Apply collapse for long messages
+    applyMessageCollapse(div, body, fullText);
+
     aiChatStreaming = null;
 
     // Save to local message store
@@ -2632,7 +2828,14 @@ function finalizeStreamMessage(fullText) {
     }
 
     const container = document.getElementById('aiChatMessages');
-    if (container) container.scrollTop = container.scrollHeight;
+    if (container) {
+        // Remove old recommendation buttons and add new ones after AI response
+        removeRecommendationButtons();
+        if (role === 'gemini' || role === 'claude') {
+            container.appendChild(createRecommendationButtons());
+        }
+        container.scrollTop = container.scrollHeight;
+    }
 }
 
 /**
@@ -2753,6 +2956,9 @@ ipcRenderer.on('ai.roundStart', (event, { projectId, round, maxRounds }) => {
     if (aiChatMode) {
         // Show round info in chat
         appendAiMessage('system', `--- Round ${round}/${maxRounds} ---`);
+        // Show stop button
+        const stopBtn = document.getElementById('aiStopBtn');
+        if (stopBtn) stopBtn.style.display = '';
     } else {
         const title = document.querySelector('.timeline-title');
         if (title) title.textContent = `AI Pipeline — Round ${round}/${maxRounds}`;
@@ -2767,6 +2973,18 @@ ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
         if (aiChatStreaming) {
             finalizeStreamMessage(aiChatStreaming.text);
         }
+        // Hide stop button
+        const stopBtn = document.getElementById('aiStopBtn');
+        if (stopBtn) stopBtn.style.display = 'none';
+        // Show "대화 완료, 코드 적용 대기" in roundInfo (executionQueued will override)
+        const roundInfo = document.getElementById('aiRoundInfo');
+        if (roundInfo) {
+            roundInfo.textContent = '⏳ 코드 적용 준비 중...';
+            roundInfo.style.color = '#d29922';
+        }
+        // Remove status indicator
+        const statusEl = document.getElementById('aiChatStatus');
+        if (statusEl) statusEl.remove();
     } else {
         // Reset timeline title
         const title = document.querySelector('.timeline-title');
@@ -2779,6 +2997,51 @@ ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
         // Finalize any remaining timeline stream
         if (timelineStreaming) {
             finalizeTimelineStreaming();
+        }
+    }
+});
+
+ipcRenderer.on('ai.executionQueued', (event, { projectId, mode }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+    if (aiChatMode) {
+        appendAiMessage('system', `🔄 ${mode || '협업'} 완료 → 터미널에서 코드 적용 시작! (터미널 탭에서 실시간 확인 가능)`);
+        // roundInfo에도 실행 상태 표시
+        const roundInfo = document.getElementById('aiRoundInfo');
+        if (roundInfo) {
+            roundInfo.textContent = '⚡ 터미널에서 코드 적용 중...';
+            roundInfo.style.color = '#3fb950';
+        }
+    }
+});
+
+// 터미널 자동 연결 등 상태 업데이트
+ipcRenderer.on('ai.statusUpdate', (event, { projectId, message }) => {
+    if (!currentProject || currentProject.id !== projectId) return;
+    if (aiChatMode) {
+        appendAiMessage('system', message);
+    }
+});
+
+// 터미널 idle 통합 핸들러 (AI Chat 알림 + idle state + dashboard)
+ipcRenderer.on('terminal.idle', (event, { projectId }) => {
+    // 1) Idle state & working indicator (for all projects)
+    idleState.set(projectId, true);
+    updateProjectWorkingState(projectId, false);
+    renderDashboard();
+
+    // 2) AI Chat notification (only for current project in AI chat mode)
+    if (currentProject && currentProject.id === projectId && aiChatMode) {
+        const roundInfo = document.getElementById('aiRoundInfo');
+        if (roundInfo && roundInfo.textContent.includes('터미널')) {
+            roundInfo.textContent = '✅ 코드 적용 완료!';
+            roundInfo.style.color = '#3fb950';
+            appendAiMessage('system', '✅ 터미널 실행 완료 — 코드가 프로젝트에 적용되었습니다.');
+            setTimeout(() => {
+                if (roundInfo) {
+                    roundInfo.textContent = '';
+                    roundInfo.style.color = '';
+                }
+            }, 5000);
         }
     }
 });
@@ -2797,7 +3060,27 @@ ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
 
 ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
     if (!currentProject || currentProject.id !== projectId) return;
-    if (!aiChatMode) {
+    if (aiChatMode) {
+        // Show status in AI chat round info area
+        const roundInfo = document.getElementById('aiRoundInfo');
+        if (roundInfo) roundInfo.textContent = status;
+        // Show stop button while AI is active
+        const stopBtn = document.getElementById('aiStopBtn');
+        if (stopBtn) stopBtn.style.display = '';
+        // Show status indicator in chat area
+        let statusEl = document.getElementById('aiChatStatus');
+        const container = document.getElementById('aiChatMessages');
+        if (container) {
+            if (!statusEl) {
+                statusEl = document.createElement('div');
+                statusEl.id = 'aiChatStatus';
+                statusEl.className = 'ai-chat-status';
+                container.appendChild(statusEl);
+            }
+            statusEl.textContent = status;
+            container.scrollTop = container.scrollHeight;
+        }
+    } else {
         const title = document.querySelector('.timeline-title');
         if (title) title.textContent = `AI Pipeline — ${status}`;
     }
@@ -2839,6 +3122,15 @@ function setupTaskInputShortcut() {
 
     textarea.addEventListener('focus', () => console.log('[textarea] focused'));
     textarea.addEventListener('blur', () => console.log('[textarea] blurred'));
+}
+
+/** Wrapper for send button — routes to AI chat or task based on mode. */
+function handleSend() {
+    if (aiChatMode) {
+        sendAiMessage();
+    } else {
+        sendTask();
+    }
 }
 
 /** Unified send — ALL input goes through pipeline routing. */
@@ -3032,15 +3324,11 @@ function renderTaskList() {
 
 // ===================================================================
 //  Idle Detection → Queue Advancement
+//  (consolidated — single handler for terminal.idle)
 // ===================================================================
 
-ipcRenderer.on('terminal.idle', (event, { projectId }) => {
-    idleState.set(projectId, true);
-    updateProjectWorkingState(projectId, false);
-    renderDashboard(); // idle 전환 시 대시보드 갱신
-    // Queue advancement is handled in main process via taskQueue.markIdle()
-    // UI will update when 'queue.updated' IPC arrives
-});
+// NOTE: terminal.idle handler is registered once at line ~2967 (AI chat section)
+// to avoid duplicate registrations. See the handler there for the combined logic.
 
 // Receive queue state updates from main process (TaskQueue.onUpdate)
 ipcRenderer.on('queue.updated', (event, state) => {

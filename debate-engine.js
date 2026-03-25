@@ -119,7 +119,11 @@ class DebateEngine {
      * Continue conversation with a new user message.
      */
     async continue(userMessage, callbacks) {
-        if (this.running) return;
+        // Force reset running state if stuck from previous round
+        if (this.running) {
+            this.running = false;
+            this._activeHandles = [];
+        }
         this.history.add('user', userMessage);
         await this._runRounds(callbacks);
     }
@@ -142,7 +146,7 @@ class DebateEngine {
         }
 
         callbacks.onRoundStart(1, 1);
-        callbacks.onStatusChange(`Gemini 기획/설계 중... | Pipeline Mode`);
+        callbacks.onStatusChange(`💭 Gemini 기획/설계 중... | Pipeline Mode`);
 
         // Step 1: Gemini designs
         await new Promise((resolve) => {
@@ -204,7 +208,7 @@ class DebateEngine {
                     break;
                 }
 
-                callbacks.onStatusChange(`Gemini thinking... | Round: ${round}/${maxRounds} | Mode: ${modeConfig.name}`);
+                callbacks.onStatusChange(`💭 대화중이에요... | Gemini 응답중 | Round ${round}/${maxRounds}`);
 
                 const geminiSuffix = isSolo ? SOLO_SUFFIX : modeConfig.geminiSuffix;
                 const geminiDone = await new Promise((resolve) => {
@@ -234,7 +238,7 @@ class DebateEngine {
 
             // --- Claude turn ---
             if (!skipClaude) {
-                callbacks.onStatusChange(`Claude thinking... | Round: ${round}/${maxRounds} | Mode: ${modeConfig.name}`);
+                callbacks.onStatusChange(`💭 대화중이에요... | Claude 응답중 | Round ${round}/${maxRounds}`);
 
                 const claudeSuffix = isSolo ? SOLO_SUFFIX : modeConfig.claudeSuffix;
                 await new Promise((resolve) => {
