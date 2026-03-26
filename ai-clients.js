@@ -418,6 +418,7 @@ function streamGemini(apiKey, history, callbacks, options) {
         inactivityTimer = setTimeout(() => {
             if (!aborted) {
                 aborted = true;
+                console.error('[Gemini] Inactivity timeout (90s). Accumulated text length:', fullTextRef.text?.length || 0);
                 if (fullTextRef.text) {
                     callbacks.onComplete(fullTextRef.text);
                 } else {
@@ -452,7 +453,9 @@ function streamGemini(apiKey, history, callbacks, options) {
                 modelConfig.systemInstruction = systemPrompt;
             }
 
-            const model = client.getGenerativeModel(modelConfig);
+            const model = client.getGenerativeModel(modelConfig, {
+                timeout: 120000 // 120s request timeout
+            });
 
             const recent = history.length > 6 ? history.slice(-6) : history;
             const geminiHistory = toGeminiHistory(recent);
@@ -533,6 +536,7 @@ function streamGemini(apiKey, history, callbacks, options) {
             }
         } catch (err) {
             clearInactivity();
+            console.error('[Gemini streamGemini] Error:', err?.message || err, err?.status || '', err?.statusText || '');
             if (!aborted) {
                 callbacks.onError(err instanceof Error ? err : new Error(String(err)));
             }
@@ -541,6 +545,7 @@ function streamGemini(apiKey, history, callbacks, options) {
 
     run().catch((err) => {
         clearInactivity();
+        console.error('[Gemini streamGemini] Unhandled error:', err?.message || err);
         if (!aborted) {
             callbacks.onError(err instanceof Error ? err : new Error(String(err)));
         }

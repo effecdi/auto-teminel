@@ -1876,7 +1876,7 @@ ipcMain.handle('get-settings', () => ({
     defaultClaudeArgs: store.get('defaultClaudeArgs', ''),
     shellPath: store.get('shellPath', ''),
     fontSize: store.get('fontSize', 14),
-    computerUseModel: store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17')
+    computerUseModel: store.get('computerUseModel', 'gemini-2.5-computer-use-preview-10-2025')
 }));
 
 // ===================================================================
@@ -1943,7 +1943,7 @@ ipcMain.handle('computerControl.startTask', async (event, { id, task, startUrl }
     if (!cc) return { success: false, error: 'No instance' };
     const apiKey = store.get('geminiApiKey', '');
     if (!apiKey) return { success: false, error: 'Gemini API key not set. Configure in Settings.' };
-    const model = store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17');
+    const model = store.get('computerUseModel', 'gemini-2.5-computer-use-preview-10-2025');
     // Run asynchronously — don't await (loop runs in background)
     cc.startTask(task, startUrl, apiKey, model);
     return { success: true };
@@ -1999,7 +1999,7 @@ ipcMain.handle('computerControl.autoVerify', async (event, { id, projectId }) =>
 
     const apiKey = store.get('geminiApiKey', '');
     if (!apiKey) return { success: false, error: 'Gemini API key not set. Configure in Settings.' };
-    const model = store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17');
+    const model = store.get('computerUseModel', 'gemini-2.5-computer-use-preview-10-2025');
 
     // Set up verify complete callback
     cc.onVerifyComplete = (summary) => {

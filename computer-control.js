@@ -181,16 +181,18 @@ class ComputerControl {
                 break;
             }
             case 'key_combination': {
-                const keys = actionArgs.keys || [];
-                this._log('key', `Keys: ${keys.join('+')}`);
-                await this._sendKeyCombo(wc, keys.join('+'));
+                // Gemini sends keys as a string like "Control+A"
+                const keys = actionArgs.keys || '';
+                this._log('key', `Keys: ${keys}`);
+                await this._sendKeyCombo(wc, keys);
                 break;
             }
             case 'scroll_at': {
                 const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
                 const direction = actionArgs.direction || 'down';
-                const magnitude = actionArgs.magnitude || 3;
-                const delta = magnitude * 100;
+                const magnitude = actionArgs.magnitude || 300;
+                // Gemini magnitude is 0-999; map to pixel delta (999 → ~800px)
+                const delta = Math.round((magnitude / 999) * 800) || 300;
                 let deltaX = 0, deltaY = 0;
                 if (direction === 'up') deltaY = delta;
                 else if (direction === 'down') deltaY = -delta;
@@ -202,8 +204,8 @@ class ComputerControl {
             }
             case 'scroll_document': {
                 const dir = actionArgs.direction || 'down';
-                const mag = actionArgs.magnitude || 3;
-                const d = mag * 100;
+                const mag = actionArgs.magnitude || 300;
+                const d = Math.round((mag / 999) * 800) || 300;
                 let dX = 0, dY = 0;
                 if (dir === 'up') dY = d;
                 else if (dir === 'down') dY = -d;
@@ -223,8 +225,8 @@ class ComputerControl {
             }
             case 'drag_and_drop': {
                 const start = this._fromNormalized(actionArgs.x, actionArgs.y);
-                const end = this._fromNormalized(actionArgs.dest_x, actionArgs.dest_y);
-                this._log('drag', `Drag (${actionArgs.x},${actionArgs.y}) → (${actionArgs.dest_x},${actionArgs.dest_y})`);
+                const end = this._fromNormalized(actionArgs.destination_x, actionArgs.destination_y);
+                this._log('drag', `Drag (${actionArgs.x},${actionArgs.y}) → (${actionArgs.destination_x},${actionArgs.destination_y})`);
                 wc.sendInputEvent({ type: 'mouseDown', x: start.x, y: start.y, button: 'left', clickCount: 1 });
                 await this._wait(100);
                 const steps = 5;
@@ -310,7 +312,7 @@ class ComputerControl {
     // ===================================================================
 
     async callAPI(apiKey, model, contents) {
-        const modelId = model || 'gemini-2.5-flash-preview-04-17';
+        const modelId = model || 'gemini-2.5-computer-use-preview-10-2025';
 
         const body = JSON.stringify({
             contents,
@@ -325,6 +327,11 @@ class ComputerControl {
         });
 
         return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                req.destroy();
+                reject(new Error('Gemini API timeout (120s)'));
+            }, 120000);
+
             const req = https.request({
                 hostname: 'generativelanguage.googleapis.com',
                 path: `/v1beta/models/${modelId}:generateContent`,
@@ -337,6 +344,7 @@ class ComputerControl {
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
+                    clearTimeout(timeout);
                     try {
                         const parsed = JSON.parse(data);
                         if (res.statusCode !== 200) {
@@ -349,7 +357,10 @@ class ComputerControl {
                     }
                 });
             });
-            req.on('error', reject);
+            req.on('error', (err) => {
+                clearTimeout(timeout);
+                reject(err);
+            });
             req.write(body);
             req.end();
         });
@@ -439,6 +450,7 @@ class ComputerControl {
 
                     const actionName = fc.functionCall.name;
                     const actionArgs = fc.functionCall.args || {};
+                    const callId = fc.functionCall.id;
 
                     // Execute the action
                     await this.executeAction(actionName, actionArgs);
@@ -450,21 +462,27 @@ class ComputerControl {
 
                     // Take screenshot after action
                     const newScreenshot = await this.captureScreenshot();
+                    const currentUrl = this.getCurrentUrl();
+                    const screenshotRef = `screenshot_${actionName}_${Date.now()}.png`;
 
-                    responseParts.push({
-                        functionResponse: {
-                            name: actionName,
-                            response: {
-                                output: 'Action executed successfully'
+                    const fr = {
+                        name: actionName,
+                        response: {
+                            output: 'Action executed successfully',
+                            url: currentUrl,
+                            screenshot: { '$ref': screenshotRef }
+                        },
+                        parts: [{
+                            inlineData: {
+                                displayName: screenshotRef,
+                                mimeType: 'image/png',
+                                data: newScreenshot.base64
                             }
-                        }
-                    });
-                    responseParts.push({
-                        inlineData: {
-                            mimeType: 'image/png',
-                            data: newScreenshot.base64
-                        }
-                    });
+                        }]
+                    };
+                    if (callId) fr.id = callId;
+
+                    responseParts.push({ functionResponse: fr });
                 }
 
                 if (this._aborted) break;

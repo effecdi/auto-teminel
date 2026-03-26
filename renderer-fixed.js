@@ -539,6 +539,12 @@ async function selectProject(projectId) {
     // Re-render AI chat if in chat mode
     if (aiChatMode) {
         renderAiChatMessages();
+        // Restore speaking indicator if AI is still active for this project
+        const activeWho = aiChatActiveMap.get(projectId);
+        if (activeWho) {
+            aiSpeakingNow = activeWho;
+            showAiSpeakingIndicator(activeWho);
+        }
     }
 
     const entry = await getOrCreateTerminal(currentProject);
@@ -1266,7 +1272,7 @@ function openSettings() {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
-        document.getElementById('computerUseModel').value = s.computerUseModel || 'gemini-2.5-flash-preview-04-17';
+        document.getElementById('computerUseModel').value = s.computerUseModel || 'gemini-2.5-computer-use-preview-10-2025';
         document.getElementById('autoFixCooldown').value = af.cooldown || 30;
         document.getElementById('autoFixTemplateText').value = af.template || 'CRITICAL ERROR DETECTED: [{label}] {error}\nFix the root cause completely.';
         document.getElementById('autoFixMaxRetries').value = af.maxRetries || 3;
