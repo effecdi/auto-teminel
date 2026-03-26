@@ -3966,6 +3966,15 @@ ipcRenderer.on('updater.autoRestart', (event, { seconds }) => {
     showToast(`업데이트 설치를 위해 ${seconds}초 후 자동 재시작됩니다...`, 'info');
 });
 
+ipcRenderer.on('updater.installFailed', (event, { message }) => {
+    updateState = 'downloaded'; // still downloaded, just can't auto-install
+    const actionBtn = document.getElementById('update-action-btn');
+    if (actionBtn) { actionBtn.textContent = '수동 재시작 필요'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '● 수동 재시작 필요'; statusEl.style.color = '#f85149'; statusEl.style.display = ''; }
+    showToast(message, 'error');
+});
+
 // ===================================================================
 //  Computer Control
 // ===================================================================

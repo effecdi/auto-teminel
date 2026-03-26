@@ -909,12 +909,24 @@ app.whenReady().then(() => {
     let _autoInstallTimer = null;
     let _updateReadyToInstall = false;
 
+    let _autoInstallAttempts = 0;
+
     const scheduleAutoInstall = (reason) => {
         if (_autoInstallTimer) return; // already scheduled
+        if (_autoInstallAttempts >= 2) {
+            safelog('[Updater] Max auto-install attempts reached. User must restart manually.');
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('updater.installFailed', {
+                    message: '자동 설치 실패. 앱을 수동으로 재시작하거나 DMG를 직접 설치하세요.'
+                });
+            }
+            return;
+        }
         _updateReadyToInstall = true;
-        safelog(`[Updater] Auto-install scheduled (${reason}). Restarting in 3s...`);
+        _autoInstallAttempts++;
+        safelog(`[Updater] Auto-install scheduled (${reason}, attempt ${_autoInstallAttempts}). Restarting in 5s...`);
         if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('updater.autoRestart', { seconds: 3 });
+            mainWindow.webContents.send('updater.autoRestart', { seconds: 5 });
         }
         _autoInstallTimer = setTimeout(() => {
             safelog('[Updater] Auto-installing now...');
@@ -922,8 +934,14 @@ app.whenReady().then(() => {
                 autoUpdater.quitAndInstall(false, true);
             } catch (err) {
                 safelog('[Updater] quitAndInstall failed:', err.message);
+                _autoInstallTimer = null; // allow retry
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('updater.installFailed', {
+                        message: `설치 실패: ${err.message}. 수동 재시작해 주세요.`
+                    });
+                }
             }
-        }, 3000);
+        }, 5000);
     };
 
     autoUpdater.on('download-progress', (progress) => {
