@@ -1153,15 +1153,10 @@
                 <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">AI Chat Settings</h3>
 
                 <div class="form-group">
-                    <label>Anthropic API Key (Computer Control)</label>
-                    <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
-                    <small>Required for Computer Control feature. Get from <a href="https://console.anthropic.com/" style="color:var(--accent);" target="_blank">Anthropic Console</a>.</small>
-                </div>
-                <div class="form-group">
                     <label>Computer Use Model</label>
                     <select id="computerUseModel" class="form-select">
-                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                        <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                        <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash (Computer Use)</option>
+                        <option value="gemini-2.0-flash-001">Gemini 2.0 Flash</option>
                     </select>
                     <small>Model to use for Computer Control browser automation</small>
                 </div>
@@ -1171,7 +1166,7 @@
                 <div class="form-group">
                     <label>Gemini API Key</label>
                     <input type="password" id="geminiApiKey" placeholder="AIza...">
-                    <small>Get from <a href="https://aistudio.google.com/apikey" style="color:var(--accent);" target="_blank">Google AI Studio</a>. Claude uses CLI OAuth (no key needed).</small>
+                    <small>AI Chat + Computer Control에 사용됩니다. Get from <a href="https://aistudio.google.com/apikey" style="color:var(--accent);" target="_blank">Google AI Studio</a>. Claude uses CLI OAuth (no key needed).</small>
                 </div>
                 <div class="form-group">
                     <label>Default Mode</label>

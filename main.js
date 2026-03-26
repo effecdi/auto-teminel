@@ -1868,7 +1868,6 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (settings.defaultClaudeArgs !== undefined) store.set('defaultClaudeArgs', settings.defaultClaudeArgs);
     if (settings.shellPath !== undefined)         store.set('shellPath', settings.shellPath);
     if (settings.fontSize !== undefined)           store.set('fontSize', settings.fontSize);
-    if (settings.anthropicApiKey !== undefined)    store.set('anthropicApiKey', settings.anthropicApiKey);
     if (settings.computerUseModel !== undefined)   store.set('computerUseModel', settings.computerUseModel);
     return { success: true };
 });
@@ -1877,8 +1876,7 @@ ipcMain.handle('get-settings', () => ({
     defaultClaudeArgs: store.get('defaultClaudeArgs', ''),
     shellPath: store.get('shellPath', ''),
     fontSize: store.get('fontSize', 14),
-    anthropicApiKey: store.get('anthropicApiKey', ''),
-    computerUseModel: store.get('computerUseModel', 'claude-sonnet-4-20250514')
+    computerUseModel: store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17')
 }));
 
 // ===================================================================
@@ -1943,9 +1941,9 @@ ipcMain.handle('computerControl.setBounds', (event, { id, bounds }) => {
 ipcMain.handle('computerControl.startTask', async (event, { id, task, startUrl }) => {
     const cc = computerControls.get(id);
     if (!cc) return { success: false, error: 'No instance' };
-    const apiKey = store.get('anthropicApiKey', '');
-    if (!apiKey) return { success: false, error: 'Anthropic API key not set. Configure in Settings.' };
-    const model = store.get('computerUseModel', 'claude-sonnet-4-20250514');
+    const apiKey = store.get('geminiApiKey', '');
+    if (!apiKey) return { success: false, error: 'Gemini API key not set. Configure in Settings.' };
+    const model = store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17');
     // Run asynchronously — don't await (loop runs in background)
     cc.startTask(task, startUrl, apiKey, model);
     return { success: true };
@@ -1999,9 +1997,9 @@ ipcMain.handle('computerControl.autoVerify', async (event, { id, projectId }) =>
     const project = projects.find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
 
-    const apiKey = store.get('anthropicApiKey', '');
-    if (!apiKey) return { success: false, error: 'Anthropic API key not set. Configure in Settings.' };
-    const model = store.get('computerUseModel', 'claude-sonnet-4-20250514');
+    const apiKey = store.get('geminiApiKey', '');
+    if (!apiKey) return { success: false, error: 'Gemini API key not set. Configure in Settings.' };
+    const model = store.get('computerUseModel', 'gemini-2.5-flash-preview-04-17');
 
     // Set up verify complete callback
     cc.onVerifyComplete = (summary) => {

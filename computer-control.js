@@ -1,4 +1,4 @@
-// Computer Control Module — BrowserView + Anthropic Computer Use API
+// Computer Control Module — BrowserView + Gemini Computer Use API
 // Manages embedded browser, screenshots, action execution, and agent loop
 
 const { BrowserView, nativeImage } = require('electron');
@@ -16,7 +16,6 @@ class ComputerControl {
         this._loopCount = 0;
         this._maxLoops = 30;
         this._conversationHistory = [];
-        this._scaleFactor = 1;
         this._viewBounds = { x: 0, y: 0, width: 1024, height: 768 };
 
         // Callbacks
@@ -86,7 +85,7 @@ class ComputerControl {
         const image = await this.browserView.webContents.capturePage();
         const size = image.getSize();
 
-        // API limit: max 1568px on the longest side, ~1.15M total pixels
+        // Resize to keep API payload reasonable (max 1568px longest side)
         const maxDim = 1568;
         let w = size.width;
         let h = size.height;
@@ -95,8 +94,6 @@ class ComputerControl {
             w = Math.round(w * scale);
             h = Math.round(h * scale);
         }
-        // Track scale factor for coordinate conversion
-        this._scaleFactor = size.width / w;
 
         const resized = image.resize({ width: w, height: h });
         const base64 = resized.toPNG().toString('base64');
@@ -108,44 +105,34 @@ class ComputerControl {
         return { base64, width: w, height: h };
     }
 
-    // Convert API coordinates (screenshot space) to actual BrowserView coordinates
-    _toRealCoords(x, y) {
+    // Convert Gemini normalized coordinates (0–999) to actual BrowserView coordinates
+    _fromNormalized(nx, ny) {
         return {
-            x: Math.round(x * this._scaleFactor),
-            y: Math.round(y * this._scaleFactor)
+            x: Math.round((nx / 1000) * this._viewBounds.width),
+            y: Math.round((ny / 1000) * this._viewBounds.height)
         };
     }
 
     // ===================================================================
-    //  Action Execution (sendInputEvent based)
+    //  Action Execution (Gemini Computer Use actions)
     // ===================================================================
 
-    async executeAction(action) {
+    async executeAction(actionName, actionArgs) {
         if (!this.browserView) return;
         const wc = this.browserView.webContents;
-        const type = action.type || action.action;
 
-        switch (type) {
-            case 'left_click':
-            case 'click': {
-                const { x, y } = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                this._log('click', `Click (${action.coordinate[0]}, ${action.coordinate[1]})`);
+        switch (actionName) {
+            case 'click_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                this._log('click', `Click (${actionArgs.x}, ${actionArgs.y})`);
                 wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                 await this._wait(50);
                 wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
                 break;
             }
-            case 'right_click': {
-                const { x, y } = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                this._log('right_click', `Right-click (${action.coordinate[0]}, ${action.coordinate[1]})`);
-                wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 });
-                await this._wait(50);
-                wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 });
-                break;
-            }
-            case 'double_click': {
-                const { x, y } = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                this._log('double_click', `Double-click (${action.coordinate[0]}, ${action.coordinate[1]})`);
+            case 'double_click_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                this._log('double_click', `Double-click (${actionArgs.x}, ${actionArgs.y})`);
                 wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                 await this._wait(30);
                 wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
@@ -155,53 +142,123 @@ class ComputerControl {
                 wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 2 });
                 break;
             }
-            case 'type': {
-                const text = action.text || '';
-                this._log('type', `Typing: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+            case 'right_click_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                this._log('right_click', `Right-click (${actionArgs.x}, ${actionArgs.y})`);
+                wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 });
+                await this._wait(50);
+                wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 });
+                break;
+            }
+            case 'type_text_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                const text = actionArgs.text || '';
+                this._log('type', `Type at (${actionArgs.x},${actionArgs.y}): "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+                // Click to focus
+                wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+                await this._wait(50);
+                wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+                await this._wait(100);
+                // Clear if requested
+                if (actionArgs.clear_before_typing) {
+                    wc.sendInputEvent({ type: 'keyDown', keyCode: 'a', modifiers: ['meta'] });
+                    await this._wait(30);
+                    wc.sendInputEvent({ type: 'keyUp', keyCode: 'a', modifiers: ['meta'] });
+                    await this._wait(30);
+                    wc.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+                    await this._wait(30);
+                    wc.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+                    await this._wait(50);
+                }
                 await wc.insertText(text);
+                // Press Enter if requested
+                if (actionArgs.press_enter) {
+                    await this._wait(50);
+                    wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+                    await this._wait(30);
+                    wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+                }
                 break;
             }
-            case 'key': {
-                const keyCombo = action.key || action.text || '';
-                this._log('key', `Key: ${keyCombo}`);
-                await this._sendKeyCombo(wc, keyCombo);
+            case 'key_combination': {
+                const keys = actionArgs.keys || [];
+                this._log('key', `Keys: ${keys.join('+')}`);
+                await this._sendKeyCombo(wc, keys.join('+'));
                 break;
             }
-            case 'scroll': {
-                const { x, y } = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                const deltaX = action.delta ? action.delta[0] : 0;
-                const deltaY = action.delta ? action.delta[1] : 0;
-                this._log('scroll', `Scroll (${deltaX}, ${deltaY}) at (${action.coordinate[0]}, ${action.coordinate[1]})`);
+            case 'scroll_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                const direction = actionArgs.direction || 'down';
+                const magnitude = actionArgs.magnitude || 3;
+                const delta = magnitude * 100;
+                let deltaX = 0, deltaY = 0;
+                if (direction === 'up') deltaY = delta;
+                else if (direction === 'down') deltaY = -delta;
+                else if (direction === 'left') deltaX = delta;
+                else if (direction === 'right') deltaX = -delta;
+                this._log('scroll', `Scroll ${direction} at (${actionArgs.x},${actionArgs.y})`);
                 wc.sendInputEvent({ type: 'mouseWheel', x, y, deltaX, deltaY });
                 break;
             }
-            case 'mouse_move': {
-                const { x, y } = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                this._log('mouse_move', `Move to (${action.coordinate[0]}, ${action.coordinate[1]})`);
+            case 'scroll_document': {
+                const dir = actionArgs.direction || 'down';
+                const mag = actionArgs.magnitude || 3;
+                const d = mag * 100;
+                let dX = 0, dY = 0;
+                if (dir === 'up') dY = d;
+                else if (dir === 'down') dY = -d;
+                else if (dir === 'left') dX = d;
+                else if (dir === 'right') dX = -d;
+                this._log('scroll', `Scroll document ${dir}`);
+                const cx = Math.round(this._viewBounds.width / 2);
+                const cy = Math.round(this._viewBounds.height / 2);
+                wc.sendInputEvent({ type: 'mouseWheel', x: cx, y: cy, deltaX: dX, deltaY: dY });
+                break;
+            }
+            case 'hover_at': {
+                const { x, y } = this._fromNormalized(actionArgs.x, actionArgs.y);
+                this._log('hover', `Hover (${actionArgs.x}, ${actionArgs.y})`);
                 wc.sendInputEvent({ type: 'mouseMove', x, y });
                 break;
             }
-            case 'left_click_drag': {
-                const startCoord = this._toRealCoords(action.startCoordinate[0], action.startCoordinate[1]);
-                const endCoord = this._toRealCoords(action.coordinate[0], action.coordinate[1]);
-                this._log('drag', `Drag from (${action.startCoordinate[0]},${action.startCoordinate[1]}) to (${action.coordinate[0]},${action.coordinate[1]})`);
-                wc.sendInputEvent({ type: 'mouseDown', x: startCoord.x, y: startCoord.y, button: 'left', clickCount: 1 });
+            case 'drag_and_drop': {
+                const start = this._fromNormalized(actionArgs.x, actionArgs.y);
+                const end = this._fromNormalized(actionArgs.dest_x, actionArgs.dest_y);
+                this._log('drag', `Drag (${actionArgs.x},${actionArgs.y}) → (${actionArgs.dest_x},${actionArgs.dest_y})`);
+                wc.sendInputEvent({ type: 'mouseDown', x: start.x, y: start.y, button: 'left', clickCount: 1 });
                 await this._wait(100);
-                // Move in steps
                 const steps = 5;
                 for (let i = 1; i <= steps; i++) {
-                    const mx = startCoord.x + (endCoord.x - startCoord.x) * (i / steps);
-                    const my = startCoord.y + (endCoord.y - startCoord.y) * (i / steps);
+                    const mx = start.x + (end.x - start.x) * (i / steps);
+                    const my = start.y + (end.y - start.y) * (i / steps);
                     wc.sendInputEvent({ type: 'mouseMove', x: Math.round(mx), y: Math.round(my) });
                     await this._wait(30);
                 }
-                wc.sendInputEvent({ type: 'mouseUp', x: endCoord.x, y: endCoord.y, button: 'left', clickCount: 1 });
+                wc.sendInputEvent({ type: 'mouseUp', x: end.x, y: end.y, button: 'left', clickCount: 1 });
                 break;
             }
-            case 'wait': {
-                const ms = (action.duration || 2) * 1000;
-                this._log('wait', `Waiting ${ms}ms`);
-                await this._wait(ms);
+            case 'navigate': {
+                const url = actionArgs.url || '';
+                this._log('navigate', `Navigate: ${url}`);
+                this.navigate(url);
+                await this._wait(2000);
+                break;
+            }
+            case 'go_back': {
+                this._log('navigate', 'Go back');
+                wc.goBack();
+                await this._wait(1000);
+                break;
+            }
+            case 'go_forward': {
+                this._log('navigate', 'Go forward');
+                wc.goForward();
+                await this._wait(1000);
+                break;
+            }
+            case 'wait_5_seconds': {
+                this._log('wait', 'Waiting 5 seconds');
+                await this._wait(5000);
                 break;
             }
             case 'screenshot': {
@@ -209,7 +266,7 @@ class ComputerControl {
                 break;
             }
             default:
-                this._log('unknown', `Unknown action: ${type}`);
+                this._log('unknown', `Unknown action: ${actionName}`);
         }
     }
 
@@ -249,45 +306,32 @@ class ComputerControl {
     }
 
     // ===================================================================
-    //  Anthropic API Call
+    //  Gemini API Call
     // ===================================================================
 
-    async callAPI(apiKey, model, messages, screenshotData) {
-        // Determine tool version and beta header based on model
-        let toolVersion, betaHeader;
-        if (model && model.includes('opus')) {
-            toolVersion = 'computer_20251124';
-            betaHeader = 'computer-use-2025-11-24';
-        } else {
-            toolVersion = 'computer_20250124';
-            betaHeader = 'computer-use-2025-01-24';
-        }
-
-        const tools = [{
-            type: toolVersion,
-            name: 'computer',
-            display_width_px: screenshotData.width,
-            display_height_px: screenshotData.height,
-            display_number: 1
-        }];
+    async callAPI(apiKey, model, contents) {
+        const modelId = model || 'gemini-2.5-flash-preview-04-17';
 
         const body = JSON.stringify({
-            model: model || 'claude-sonnet-4-20250514',
-            max_tokens: 4096,
-            tools,
-            messages
+            contents,
+            tools: [{
+                computer_use: {
+                    environment: 'ENVIRONMENT_BROWSER'
+                }
+            }],
+            generationConfig: {
+                maxOutputTokens: 8192
+            }
         });
 
         return new Promise((resolve, reject) => {
             const req = https.request({
-                hostname: 'api.anthropic.com',
-                path: '/v1/messages',
+                hostname: 'generativelanguage.googleapis.com',
+                path: `/v1beta/models/${modelId}:generateContent`,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-beta': betaHeader
+                    'x-goog-api-key': apiKey
                 }
             }, (res) => {
                 let data = '';
@@ -296,12 +340,12 @@ class ComputerControl {
                     try {
                         const parsed = JSON.parse(data);
                         if (res.statusCode !== 200) {
-                            reject(new Error(`API error ${res.statusCode}: ${parsed.error?.message || data}`));
+                            reject(new Error(`Gemini API error ${res.statusCode}: ${parsed.error?.message || data}`));
                         } else {
                             resolve(parsed);
                         }
                     } catch (e) {
-                        reject(new Error(`Failed to parse API response: ${e.message}`));
+                        reject(new Error(`Failed to parse Gemini response: ${e.message}`));
                     }
                 });
             });
@@ -337,22 +381,12 @@ class ComputerControl {
             // Initial screenshot
             const screenshot = await this.captureScreenshot();
 
-            // Build initial message
+            // Build initial message (Gemini format)
             this._conversationHistory = [{
                 role: 'user',
-                content: [
-                    {
-                        type: 'text',
-                        text: userTask
-                    },
-                    {
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: 'image/png',
-                            data: screenshot.base64
-                        }
-                    }
+                parts: [
+                    { text: userTask },
+                    { inlineData: { mimeType: 'image/png', data: screenshot.base64 } }
                 ]
             }];
 
@@ -362,49 +396,52 @@ class ComputerControl {
                 this._log('loop', `--- Loop ${this._loopCount}/${this._maxLoops} ---`);
                 this._emitUpdate();
 
-                // Call API
-                const response = await this.callAPI(apiKey, model, this._conversationHistory, screenshot);
+                // Call Gemini API
+                const response = await this.callAPI(apiKey, model, this._conversationHistory);
 
                 if (this._aborted) break;
 
-                // Extract content blocks
-                const content = response.content || [];
-                const stopReason = response.stop_reason;
+                // Extract candidate
+                const candidate = response.candidates?.[0];
+                if (!candidate) {
+                    this._log('error', 'No candidate in Gemini response');
+                    break;
+                }
 
-                // Add assistant response to history
+                const content = candidate.content;
+                const finishReason = candidate.finishReason;
+                const parts = content?.parts || [];
+
+                // Add model response to history
                 this._conversationHistory.push({
-                    role: 'assistant',
-                    content
+                    role: 'model',
+                    parts
                 });
 
-                // Log text blocks
-                for (const block of content) {
-                    if (block.type === 'text' && block.text) {
-                        this._log('think', block.text.substring(0, 200));
+                // Log text parts
+                for (const part of parts) {
+                    if (part.text) {
+                        this._log('think', part.text.substring(0, 200));
                     }
                 }
 
-                // If stop reason is 'end_turn' (no tool use), we're done
-                if (stopReason === 'end_turn') {
-                    this._log('done', 'Task completed (end_turn)');
+                // Check for function calls
+                const functionCalls = parts.filter(p => p.functionCall);
+                if (functionCalls.length === 0) {
+                    this._log('done', `Task completed (${finishReason || 'no actions'})`);
                     break;
                 }
 
-                // Process tool_use blocks
-                const toolUseBlocks = content.filter(b => b.type === 'tool_use');
-                if (toolUseBlocks.length === 0) {
-                    this._log('done', 'No tool use blocks — task complete');
-                    break;
-                }
-
-                const toolResults = [];
-                for (const toolBlock of toolUseBlocks) {
+                // Execute each function call and collect results
+                const responseParts = [];
+                for (const fc of functionCalls) {
                     if (this._aborted) break;
 
-                    const action = toolBlock.input;
+                    const actionName = fc.functionCall.name;
+                    const actionArgs = fc.functionCall.args || {};
 
                     // Execute the action
-                    await this.executeAction(action);
+                    await this.executeAction(actionName, actionArgs);
 
                     // Wait for UI to settle
                     await this._wait(500);
@@ -414,26 +451,28 @@ class ComputerControl {
                     // Take screenshot after action
                     const newScreenshot = await this.captureScreenshot();
 
-                    toolResults.push({
-                        type: 'tool_result',
-                        tool_use_id: toolBlock.id,
-                        content: [{
-                            type: 'image',
-                            source: {
-                                type: 'base64',
-                                media_type: 'image/png',
-                                data: newScreenshot.base64
+                    responseParts.push({
+                        functionResponse: {
+                            name: actionName,
+                            response: {
+                                output: 'Action executed successfully'
                             }
-                        }]
+                        }
+                    });
+                    responseParts.push({
+                        inlineData: {
+                            mimeType: 'image/png',
+                            data: newScreenshot.base64
+                        }
                     });
                 }
 
                 if (this._aborted) break;
 
-                // Add tool results to conversation
+                // Add function results to conversation
                 this._conversationHistory.push({
                     role: 'user',
-                    content: toolResults
+                    parts: responseParts
                 });
             }
 
@@ -446,13 +485,13 @@ class ComputerControl {
         this._emitUpdate();
         this._log('status', `Agent ${this._aborted ? 'stopped' : 'finished'} after ${this._loopCount} loops`);
 
-        // Extract final summary from last assistant message and invoke verify callback
+        // Extract final summary from last model message and invoke verify callback
         if (this.onVerifyComplete && !this._aborted) {
             try {
-                const lastAssistant = [...this._conversationHistory].reverse().find(m => m.role === 'assistant');
-                if (lastAssistant) {
-                    const textBlocks = (lastAssistant.content || []).filter(b => b.type === 'text' && b.text);
-                    const summary = textBlocks.map(b => b.text).join('\n') || 'No summary available';
+                const lastModel = [...this._conversationHistory].reverse().find(m => m.role === 'model');
+                if (lastModel) {
+                    const textParts = (lastModel.parts || []).filter(p => p.text);
+                    const summary = textParts.map(p => p.text).join('\n') || 'No summary available';
                     this.onVerifyComplete(summary);
                 }
             } catch (_) {}

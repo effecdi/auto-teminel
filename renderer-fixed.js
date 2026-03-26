@@ -1266,8 +1266,7 @@ function openSettings() {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
-        document.getElementById('anthropicApiKey').value = s.anthropicApiKey || '';
-        document.getElementById('computerUseModel').value = s.computerUseModel || 'claude-sonnet-4-20250514';
+        document.getElementById('computerUseModel').value = s.computerUseModel || 'gemini-2.5-flash-preview-04-17';
         document.getElementById('autoFixCooldown').value = af.cooldown || 30;
         document.getElementById('autoFixTemplateText').value = af.template || 'CRITICAL ERROR DETECTED: [{label}] {error}\nFix the root cause completely.';
         document.getElementById('autoFixMaxRetries').value = af.maxRetries || 3;
@@ -1332,10 +1331,9 @@ async function saveSettings() {
     const arRateWindow = parseInt(document.getElementById('autoRestartRateWindow').value, 10) || 5;
 
     // Computer Control settings
-    const anthropicApiKey = document.getElementById('anthropicApiKey').value.trim();
     const computerUseModel = document.getElementById('computerUseModel').value;
 
-    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize, anthropicApiKey, computerUseModel });
+    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize, computerUseModel });
     await ipcRenderer.invoke('autoFix.setSettings', {
         cooldown: autoFixCooldown,
         template: autoFixTemplateText,
