@@ -906,6 +906,26 @@ app.whenReady().then(() => {
         }
     });
 
+    let _autoInstallTimer = null;
+    let _updateReadyToInstall = false;
+
+    const scheduleAutoInstall = (reason) => {
+        if (_autoInstallTimer) return; // already scheduled
+        _updateReadyToInstall = true;
+        safelog(`[Updater] Auto-install scheduled (${reason}). Restarting in 3s...`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater.autoRestart', { seconds: 3 });
+        }
+        _autoInstallTimer = setTimeout(() => {
+            safelog('[Updater] Auto-installing now...');
+            try {
+                autoUpdater.quitAndInstall(false, true);
+            } catch (err) {
+                safelog('[Updater] quitAndInstall failed:', err.message);
+            }
+        }, 3000);
+    };
+
     autoUpdater.on('download-progress', (progress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('updater.progress', {
@@ -914,6 +934,14 @@ app.whenReady().then(() => {
                 transferred: progress.transferred,
                 total: progress.total
             });
+        }
+        // Fallback: if progress hits 100% but update-downloaded never fires
+        if (progress.percent >= 99.9 && !_updateReadyToInstall) {
+            setTimeout(() => {
+                if (!_updateReadyToInstall) {
+                    scheduleAutoInstall('progress 100% fallback');
+                }
+            }, 3000);
         }
     });
 
@@ -924,6 +952,8 @@ app.whenReady().then(() => {
                 version: info.version
             });
         }
+        // Auto-restart to install
+        scheduleAutoInstall('update-downloaded');
     });
 
     autoUpdater.on('error', (err) => {

@@ -3945,6 +3945,10 @@ ipcRenderer.on('updater.error', (event, { message }) => {
     if (statusEl) { statusEl.style.display = 'none'; }
 });
 
+ipcRenderer.on('updater.autoRestart', (event, { seconds }) => {
+    showToast(`업데이트 설치를 위해 ${seconds}초 후 자동 재시작됩니다...`, 'info');
+});
+
 // ===================================================================
 //  Computer Control
 // ===================================================================
