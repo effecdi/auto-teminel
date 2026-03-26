@@ -57,7 +57,8 @@ let autoRestartResendPrompt = true;
 
 // Computer Control state
 let ccMode = false;                  // true = CC visible, false = Terminal visible
-const CC_ID = 'main';               // single CC instance id
+function getCcId() { return currentProject ? currentProject.id : 'main'; }
+const ccStateMap = new Map();        // projectId → { url, task, logsHTML, screenshotSrc, screenshotVisible }
 
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
@@ -505,6 +506,7 @@ async function ensurePtyRunning(project) {
 // ===================================================================
 
 async function selectProject(projectId) {
+    const previousProject = currentProject;
     currentProject = projects.find(p => p.id === projectId);
     if (!currentProject) return;
 
@@ -512,6 +514,19 @@ async function selectProject(projectId) {
 
     // Persist last selected project
     ipcRenderer.invoke('session.setLastSelectedProject', projectId);
+
+    // Computer Control: save previous project state and switch to new project instance
+    if (ccMode && previousProject && previousProject.id !== projectId) {
+        // Save previous CC UI state
+        ccSaveState(previousProject.id);
+        // Hide previous BrowserView
+        ipcRenderer.invoke('computerControl.setBounds', { id: previousProject.id, bounds: { x: 0, y: 0, width: 0, height: 0 } });
+        // Create/reuse CC instance for new project
+        ipcRenderer.invoke('computerControl.create', { id: getCcId() }).then(() => {
+            ccRestoreState(getCcId());
+            setTimeout(() => ccUpdateBrowserBounds(), 100);
+        });
+    }
 
     // Clean up AI chat state when switching projects
     if (aiChatStreaming) {
@@ -1239,6 +1254,8 @@ async function deleteProject(projectId) {
     aiChatStarted.delete(projectId);
     attachedImagesMap.delete(projectId);
     idleState.delete(projectId);
+    ccStateMap.delete(projectId);
+    ipcRenderer.invoke('computerControl.destroy', { id: projectId });
 
     if (currentProject && currentProject.id === projectId) {
         currentProject = null;
@@ -3953,9 +3970,47 @@ ipcRenderer.on('updater.autoRestart', (event, { seconds }) => {
 //  Computer Control
 // ===================================================================
 
+function ccSaveState(projectId) {
+    if (!projectId) return;
+    const urlInput = document.getElementById('ccUrlInput');
+    const taskInput = document.getElementById('ccTaskInput');
+    const logEntries = document.getElementById('ccLogEntries');
+    const screenshot = document.getElementById('ccScreenshot');
+    ccStateMap.set(projectId, {
+        url: urlInput ? urlInput.value : '',
+        task: taskInput ? taskInput.value : '',
+        logsHTML: logEntries ? logEntries.innerHTML : '',
+        screenshotSrc: screenshot ? screenshot.src : '',
+        screenshotVisible: screenshot ? screenshot.style.display === 'block' : false
+    });
+}
+
+function ccRestoreState(projectId) {
+    const state = projectId ? ccStateMap.get(projectId) : null;
+    const urlInput = document.getElementById('ccUrlInput');
+    const taskInput = document.getElementById('ccTaskInput');
+    const logEntries = document.getElementById('ccLogEntries');
+    const screenshot = document.getElementById('ccScreenshot');
+    const placeholder = document.getElementById('ccBrowserPlaceholder');
+    if (urlInput) urlInput.value = state ? state.url : '';
+    if (taskInput) taskInput.value = state ? state.task : '';
+    if (logEntries) logEntries.innerHTML = state ? state.logsHTML : '<div class="cc-log-empty">No actions yet</div>';
+    if (screenshot) {
+        screenshot.src = state && state.screenshotSrc ? state.screenshotSrc : '';
+        screenshot.style.display = state && state.screenshotVisible ? 'block' : 'none';
+    }
+    if (placeholder) placeholder.style.display = state && state.screenshotVisible ? 'none' : '';
+}
+
 function toggleComputerControl() {
     // If AI chat is active, close it first
     if (aiChatMode) toggleAiChat();
+
+    // Guard: need a project selected to enter CC mode
+    if (!ccMode && !currentProject) {
+        showToast('프로젝트를 먼저 선택하세요', 'error');
+        return;
+    }
 
     ccMode = !ccMode;
 
@@ -3985,8 +4040,9 @@ function toggleComputerControl() {
         const imgBar = document.getElementById('imagePreviewBar');
         if (imgBar) { imgBar.dataset.hiddenByCC = imgBar.style.display !== 'none' ? '1' : ''; imgBar.style.display = 'none'; }
 
-        // Create BrowserView
-        ipcRenderer.invoke('computerControl.create', { id: CC_ID }).then(() => {
+        // Create BrowserView + restore state for this project
+        ipcRenderer.invoke('computerControl.create', { id: getCcId() }).then(() => {
+            ccRestoreState(getCcId());
             // Set bounds after a small delay for layout to settle
             setTimeout(() => ccUpdateBrowserBounds(), 100);
         });
@@ -4006,7 +4062,7 @@ function toggleComputerControl() {
         if (imgBar && imgBar.dataset.hiddenByCC === '1') imgBar.style.display = '';
 
         // Hide BrowserView (set bounds to 0)
-        ipcRenderer.invoke('computerControl.setBounds', { id: CC_ID, bounds: { x: 0, y: 0, width: 0, height: 0 } });
+        ipcRenderer.invoke('computerControl.setBounds', { id: getCcId(), bounds: { x: 0, y: 0, width: 0, height: 0 } });
 
         // Re-fit terminal
         if (currentProject) {
@@ -4024,7 +4080,7 @@ function ccUpdateBrowserBounds() {
     const rect = panel.getBoundingClientRect();
     // BrowserView bounds are relative to the window
     ipcRenderer.invoke('computerControl.setBounds', {
-        id: CC_ID,
+        id: getCcId(),
         bounds: {
             x: Math.round(rect.left),
             y: Math.round(rect.top),
@@ -4039,7 +4095,7 @@ function ccNavigate() {
     if (!urlInput) return;
     const url = urlInput.value.trim();
     if (!url) return;
-    ipcRenderer.invoke('computerControl.navigate', { id: CC_ID, url });
+    ipcRenderer.invoke('computerControl.navigate', { id: getCcId(), url });
     // Hide placeholder, show screenshot area
     const placeholder = document.getElementById('ccBrowserPlaceholder');
     if (placeholder) placeholder.style.display = 'none';
@@ -4053,7 +4109,7 @@ async function ccStartTask() {
     if (!task) { showToast('작업 지시를 입력하세요', 'error'); return; }
     const startUrl = urlInput ? urlInput.value.trim() : '';
 
-    const result = await ipcRenderer.invoke('computerControl.startTask', { id: CC_ID, task, startUrl });
+    const result = await ipcRenderer.invoke('computerControl.startTask', { id: getCcId(), task, startUrl });
     if (!result.success) {
         showToast(result.error, 'error');
         return;
@@ -4067,7 +4123,7 @@ async function ccStartTask() {
 }
 
 function ccStopTask() {
-    ipcRenderer.invoke('computerControl.stop', { id: CC_ID });
+    ipcRenderer.invoke('computerControl.stop', { id: getCcId() });
 }
 
 async function ccAutoVerify() {
@@ -4087,7 +4143,7 @@ async function ccAutoVerify() {
     if (logEntries) logEntries.innerHTML = '';
 
     const result = await ipcRenderer.invoke('computerControl.autoVerify', {
-        id: CC_ID,
+        id: getCcId(),
         projectId: currentProject.id
     });
 
@@ -4121,6 +4177,9 @@ async function ccAutoVerify() {
 
 // IPC listeners for Computer Control
 ipcRenderer.on('computerControl.updated', (event, data) => {
+    // Only update UI if this is the current project's CC instance
+    if (data.id !== getCcId()) return;
+
     const statusDot = document.getElementById('ccStatusDot');
     const statusText = document.getElementById('ccStatusText');
     const loopCount = document.getElementById('ccLoopCount');
@@ -4160,6 +4219,14 @@ ipcRenderer.on('computerControl.updated', (event, data) => {
 });
 
 ipcRenderer.on('computerControl.screenshot', (event, data) => {
+    if (data.id !== getCcId()) {
+        // Buffer screenshot for background project
+        const st = ccStateMap.get(data.id) || {};
+        st.screenshotSrc = 'data:image/png;base64,' + data.base64;
+        st.screenshotVisible = true;
+        ccStateMap.set(data.id, st);
+        return;
+    }
     const img = document.getElementById('ccScreenshot');
     const placeholder = document.getElementById('ccBrowserPlaceholder');
     if (img) {
@@ -4170,6 +4237,16 @@ ipcRenderer.on('computerControl.screenshot', (event, data) => {
 });
 
 ipcRenderer.on('computerControl.actionLog', (event, data) => {
+    if (data.id !== getCcId()) {
+        // Buffer action log for background project
+        const st = ccStateMap.get(data.id) || {};
+        const time = new Date(data.timestamp);
+        const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const logLine = `<div class="cc-log-entry type-${data.type}"><span class="cc-log-time">${timeStr}</span>${escapeHtml(data.message)}</div>`;
+        st.logsHTML = (st.logsHTML || '') + logLine;
+        ccStateMap.set(data.id, st);
+        return;
+    }
     const logEntries = document.getElementById('ccLogEntries');
     if (!logEntries) return;
     // Remove empty placeholder
@@ -4190,6 +4267,9 @@ ipcRenderer.on('computerControl.error', (event, data) => {
 });
 
 ipcRenderer.on('computerControl.verifyResult', (event, data) => {
+    // Only handle for current project
+    if (data.id !== getCcId()) return;
+
     // Restore verify button
     const verifyBtn = document.getElementById('ccVerifyBtn');
     if (verifyBtn) {

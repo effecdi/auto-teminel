@@ -317,7 +317,7 @@ class ComputerControl {
         const body = JSON.stringify({
             contents,
             tools: [{
-                computer_use: {
+                computerUse: {
                     environment: 'ENVIRONMENT_BROWSER'
                 }
             }],
@@ -350,6 +350,13 @@ class ComputerControl {
                         if (res.statusCode !== 200) {
                             reject(new Error(`Gemini API error ${res.statusCode}: ${parsed.error?.message || data}`));
                         } else {
+                            // Log API response details
+                            const candidateCount = parsed.candidates?.length || 0;
+                            const finishReason = parsed.candidates?.[0]?.finishReason || 'N/A';
+                            this._log('api', `[CC API] candidates=${candidateCount}, finishReason=${finishReason}`);
+                            if (candidateCount === 0) {
+                                console.error('[CC API] No candidates! Full response:', JSON.stringify(parsed).substring(0, 500));
+                            }
                             resolve(parsed);
                         }
                     } catch (e) {
@@ -474,7 +481,6 @@ class ComputerControl {
                         },
                         parts: [{
                             inlineData: {
-                                displayName: screenshotRef,
                                 mimeType: 'image/png',
                                 data: newScreenshot.base64
                             }
@@ -617,6 +623,7 @@ class ComputerControl {
     }
 
     _log(type, message) {
+        console.log(`[CC][${type}] ${message}`);
         if (this.onActionLog) {
             this.onActionLog({ type, message, timestamp: Date.now() });
         }

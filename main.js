@@ -1915,7 +1915,11 @@ ipcMain.handle('get-settings', () => ({
 
 ipcMain.handle('computerControl.create', (event, { id }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'No window' };
-    if (computerControls.has(id)) return { success: true };
+    if (computerControls.has(id)) {
+        safelog(`[CC] Reusing existing instance: ${id}`);
+        return { success: true };
+    }
+    safelog(`[CC] Creating new instance: ${id}`);
 
     const cc = new ComputerControl(mainWindow);
     cc.onUpdate = (state) => {
