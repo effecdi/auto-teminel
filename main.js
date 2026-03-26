@@ -909,22 +909,10 @@ app.whenReady().then(() => {
     let _autoInstallTimer = null;
     let _updateReadyToInstall = false;
 
-    let _autoInstallAttempts = 0;
-
     const scheduleAutoInstall = (reason) => {
         if (_autoInstallTimer) return; // already scheduled
-        if (_autoInstallAttempts >= 2) {
-            safelog('[Updater] Max auto-install attempts reached. User must restart manually.');
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('updater.installFailed', {
-                    message: '자동 설치 실패. 앱을 수동으로 재시작하거나 DMG를 직접 설치하세요.'
-                });
-            }
-            return;
-        }
         _updateReadyToInstall = true;
-        _autoInstallAttempts++;
-        safelog(`[Updater] Auto-install scheduled (${reason}, attempt ${_autoInstallAttempts}). Restarting in 5s...`);
+        safelog(`[Updater] Auto-install scheduled (${reason}). Restarting in 5s...`);
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('updater.autoRestart', { seconds: 5 });
         }
@@ -933,14 +921,15 @@ app.whenReady().then(() => {
             try {
                 autoUpdater.quitAndInstall(false, true);
             } catch (err) {
-                safelog('[Updater] quitAndInstall failed:', err.message);
-                _autoInstallTimer = null; // allow retry
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('updater.installFailed', {
-                        message: `설치 실패: ${err.message}. 수동 재시작해 주세요.`
-                    });
-                }
+                safelog('[Updater] quitAndInstall threw:', err.message);
             }
+            // quitAndInstall can silently fail on macOS (unsigned app).
+            // If still alive after 2s, force restart — autoInstallOnAppQuit will apply the update.
+            setTimeout(() => {
+                safelog('[Updater] App still alive after quitAndInstall. Force relaunch via app.exit(0)...');
+                app.relaunch();
+                app.exit(0);
+            }, 2000);
         }, 5000);
     };
 
@@ -2969,11 +2958,14 @@ ipcMain.handle('updater.install', () => {
     try {
         autoUpdater.quitAndInstall(false, true);
     } catch (err) {
-        safelog('[Updater] quitAndInstall failed, force relaunch:', err.message);
-        // Fallback: force relaunch the app (update will install on next launch via autoInstallOnAppQuit)
+        safelog('[Updater] quitAndInstall threw:', err.message);
+    }
+    // Fallback: if quitAndInstall silently fails, force restart after 2s
+    setTimeout(() => {
+        safelog('[Updater] Force relaunch via app.exit(0)...');
         app.relaunch();
         app.exit(0);
-    }
+    }, 2000);
 });
 
 ipcMain.handle('updater.getVersion', () => {
