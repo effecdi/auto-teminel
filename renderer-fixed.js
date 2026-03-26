@@ -3887,6 +3887,17 @@ ipcRenderer.on('updater.not-available', () => {
 
 let _updateDownloadedReceived = false;
 
+function _forceDownloadedState() {
+    updateState = 'downloaded';
+    const actionBtn = document.getElementById('update-action-btn');
+    const progressBar = document.getElementById('update-progress-bar');
+    if (actionBtn) { actionBtn.textContent = '지금 재시작하여 설치'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    if (progressBar) progressBar.style.display = 'none';
+    const statusEl = document.getElementById('app-version-status');
+    if (statusEl) { statusEl.textContent = '● 재시작 필요'; statusEl.style.color = '#58a6ff'; statusEl.style.display = ''; }
+    showToast('다운로드 완료! 재시작하면 자동 설치됩니다.', 'success');
+}
+
 ipcRenderer.on('updater.progress', (event, { percent, transferred, total }) => {
     const fill = document.getElementById('update-progress-fill');
     const text = document.getElementById('update-progress-text');
@@ -3896,37 +3907,24 @@ ipcRenderer.on('updater.progress', (event, { percent, transferred, total }) => {
         text.textContent = `${mb(transferred)} / ${mb(total)} MB  (${Math.round(percent)}%)`;
     }
 
-    // Safety: if progress hits 100% but update-downloaded never fires, force enable install after 5s
+    // When progress hits 100%, force downloaded state after 2s if update-downloaded event never fires
     if (percent >= 99.9 && !_updateDownloadedReceived) {
-        setTimeout(() => {
+        console.log(`[Updater] Progress 100% reached. _updateDownloadedReceived=${_updateDownloadedReceived}, updateState=${updateState}`);
+        clearTimeout(window._updaterFallbackTimer);
+        window._updaterFallbackTimer = setTimeout(() => {
             if (!_updateDownloadedReceived && updateState !== 'downloaded') {
-                console.log('[Updater] Forcing downloaded state (update-downloaded event missing)');
-                updateState = 'downloaded';
-                const actionBtn = document.getElementById('update-action-btn');
-                const progressBar = document.getElementById('update-progress-bar');
-                if (actionBtn) { actionBtn.textContent = '지금 재시작하여 설치'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
-                if (progressBar) progressBar.style.display = 'none';
-                const statusEl = document.getElementById('app-version-status');
-                if (statusEl) { statusEl.textContent = '● 재시작 필요'; statusEl.style.color = '#58a6ff'; statusEl.style.display = ''; }
-                showToast('다운로드 완료! 재시작하면 자동 설치됩니다.', 'success');
+                console.log('[Updater] Forcing downloaded state (update-downloaded event missing after 2s)');
+                _forceDownloadedState();
             }
-        }, 5000);
+        }, 2000);
     }
 });
 
 ipcRenderer.on('updater.downloaded', (event, { version }) => {
     _updateDownloadedReceived = true;
-    updateState = 'downloaded';
-    const actionBtn = document.getElementById('update-action-btn');
-    const progressBar = document.getElementById('update-progress-bar');
-    if (actionBtn) { actionBtn.textContent = '지금 재시작하여 설치'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
-    if (progressBar) progressBar.style.display = 'none';
-    // Update sidebar status
-    const statusEl = document.getElementById('app-version-status');
-    if (statusEl) { statusEl.textContent = '● 재시작 필요'; statusEl.style.color = '#58a6ff'; statusEl.style.display = ''; }
-    // Toast notification
-    showToast(`v${version} 다운로드 완료! 재시작하면 자동 설치됩니다.`, 'success');
-    // Show banner again in case it was dismissed
+    clearTimeout(window._updaterFallbackTimer);
+    console.log(`[Updater] update-downloaded received: v${version}`);
+    _forceDownloadedState();
     showUpdateBanner();
 });
 
