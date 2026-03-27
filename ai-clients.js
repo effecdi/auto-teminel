@@ -467,7 +467,16 @@ function streamGemini(apiKey, history, callbacks, options) {
 
             const chat = model.startChat({ history: geminiHistory });
 
-            let currentParts = lastMsg.parts;
+            let currentParts = [...lastMsg.parts];
+
+            // Inject FileDataPart for uploaded media files (video/image)
+            const mediaFiles = (options && options.attachedMediaFiles) || [];
+            if (mediaFiles.length > 0) {
+                for (const mf of mediaFiles) {
+                    currentParts.push({ fileData: { fileUri: mf.fileUri, mimeType: mf.mimeType } });
+                }
+                console.log(`[Gemini] Attached ${mediaFiles.length} media file(s) to message`);
+            }
 
             // Start inactivity timer
             resetInactivity(fullTextRef);

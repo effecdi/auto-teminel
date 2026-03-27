@@ -2608,6 +2608,9 @@ function toggleAiChat() {
     }
 }
 
+// Media file extensions that should be uploaded to Gemini File API
+const MEDIA_UPLOAD_EXTS = /\.(mp4|mov|avi|mkv|webm|png|jpg|jpeg|gif|webp|bmp)$/i;
+
 async function sendAiMessage() {
     // Use AI chat textarea if available, fallback to task input
     const textarea = document.getElementById('aiChatTextarea') || document.getElementById('taskInput');
@@ -2628,10 +2631,22 @@ async function sendAiMessage() {
 
     const projectId = currentProject.id;
 
+    // Check for attached media files that need Gemini File API upload
+    const attachedFiles = getAttachedImages();
+    const mediaFilesToUpload = attachedFiles.filter(f => MEDIA_UPLOAD_EXTS.test(f));
+    const nonMediaFiles = attachedFiles.filter(f => !MEDIA_UPLOAD_EXTS.test(f));
+
+    // Build display text with file info
+    let displayText = text;
+    if (attachedFiles.length > 0) {
+        const fileNames = attachedFiles.map(f => f.split('/').pop()).join(', ');
+        displayText = `📎 ${fileNames}\n\n${text}`;
+    }
+
     // Add user message to local state
     if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
-    aiChatMessages.get(projectId).push({ role: 'user', content: text, timestamp: Date.now() });
-    appendAiMessage('user', text);
+    aiChatMessages.get(projectId).push({ role: 'user', content: displayText, timestamp: Date.now() });
+    appendAiMessage('user', displayText);
 
     // Show status bar
     showAiStatusBar('AI가 응답을 준비하고 있습니다...', '');
@@ -2653,17 +2668,62 @@ async function sendAiMessage() {
 
     const hasStarted = aiChatStarted.get(projectId);
 
+    // Upload media files to Gemini File API
+    let attachedMediaFiles = [];
+    if (mediaFilesToUpload.length > 0) {
+        showAiStatusBar('미디어 파일 업로드 중...', `0/${mediaFilesToUpload.length}`);
+        for (let i = 0; i < mediaFilesToUpload.length; i++) {
+            const filePath = mediaFilesToUpload[i];
+            const fileName = filePath.split('/').pop();
+            showAiStatusBar(`업로드 중: ${fileName}`, `${i + 1}/${mediaFilesToUpload.length}`);
+            try {
+                const result = await ipcRenderer.invoke('ai.uploadMediaFile', { filePath });
+                if (result.success) {
+                    attachedMediaFiles.push({
+                        fileUri: result.fileUri,
+                        mimeType: result.mimeType,
+                        fileName: result.fileName,
+                    });
+                } else {
+                    showToast(`업로드 실패: ${fileName} — ${result.error}`, 'error');
+                }
+            } catch (uploadErr) {
+                showToast(`업로드 에러: ${fileName} — ${uploadErr.message}`, 'error');
+            }
+        }
+        if (attachedMediaFiles.length > 0) {
+            showAiStatusBar(`${attachedMediaFiles.length}개 파일 업로드 완료! AI 분석 시작...`, '');
+        }
+    }
+
+    // Clear attached files
+    if (attachedFiles.length > 0) {
+        clearAttachedImages();
+    }
+
+    // Build message text — include non-media file paths as text (legacy behavior)
+    let messageText = text;
+    if (nonMediaFiles.length > 0) {
+        const pathsList = nonMediaFiles.map(f => `"${f}"`).join(' ');
+        messageText = `[Attached files: ${pathsList}]\n\n${text}`;
+    }
+    if (attachedMediaFiles.length > 0) {
+        const mediaNames = attachedMediaFiles.map(f => f.fileName).join(', ');
+        messageText = `[첨부된 미디어: ${mediaNames}]\n\n${messageText}`;
+    }
+
     try {
         if (!hasStarted) {
             // First message — start new conversation
             await ipcRenderer.invoke('ai.start', {
                 projectId,
-                task: text,
+                task: messageText,
                 mode: debateMode,
                 aiMode: aiMode,
                 operationType: operationType || undefined,
                 projectPath: currentProject.path,
                 projectName: currentProject.name,
+                attachedMediaFiles,
             });
             // Only mark as started AFTER successful invoke
             aiChatStarted.set(projectId, true);
@@ -2671,12 +2731,13 @@ async function sendAiMessage() {
             // Continue existing conversation — pass project context every time
             await ipcRenderer.invoke('ai.continue', {
                 projectId,
-                message: text,
+                message: messageText,
                 mode: debateMode,
                 aiMode: aiMode,
                 operationType: operationType || undefined,
                 projectPath: currentProject.path,
                 projectName: currentProject.name,
+                attachedMediaFiles,
             });
         }
     } catch (err) {
@@ -3370,6 +3431,15 @@ ipcRenderer.on('ai.statusChange', (event, { projectId, status }) => {
         const sendBtn = document.getElementById('aiChatSendBtn');
         if (stopBtn) stopBtn.style.display = '';
         if (sendBtn) sendBtn.style.display = 'none';
+    }
+});
+
+// Media upload progress from main process
+ipcRenderer.on('ai.mediaUploadProgress', (event, { filePath, status, message }) => {
+    if (aiChatMode) {
+        const fileName = filePath ? filePath.split('/').pop() : '';
+        const statusText = `📤 ${message || status}`;
+        showAiStatusBar(statusText, fileName);
     }
 });
 

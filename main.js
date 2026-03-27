@@ -2236,6 +2236,123 @@ ipcMain.handle('save-clipboard-image', async (event, dataURL) => {
 });
 
 // ===================================================================
+//  Media File Upload to Gemini File API
+// ===================================================================
+
+const MEDIA_MIME_TYPES = {
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+    '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+};
+
+function getMimeType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    return MEDIA_MIME_TYPES[ext] || null;
+}
+
+ipcMain.handle('ai.uploadMediaFile', async (event, { filePath }) => {
+    try {
+        const geminiApiKey = store.get('geminiApiKey', '');
+        if (!geminiApiKey) {
+            return { success: false, error: 'Gemini API Key가 설정되지 않았습니다.' };
+        }
+
+        const mimeType = getMimeType(filePath);
+        if (!mimeType) {
+            return { success: false, error: `지원하지 않는 파일 형식: ${path.extname(filePath)}` };
+        }
+
+        // Check file exists and size
+        if (!fs.existsSync(filePath)) {
+            return { success: false, error: `파일을 찾을 수 없습니다: ${filePath}` };
+        }
+        const stat = fs.statSync(filePath);
+        if (stat.size > 2 * 1024 * 1024 * 1024) {
+            return { success: false, error: '파일 크기가 2GB를 초과합니다.' };
+        }
+
+        console.log(`[MediaUpload] Uploading ${filePath} (${mimeType}, ${(stat.size / 1024 / 1024).toFixed(1)}MB)`);
+
+        // Notify renderer about upload start
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ai.mediaUploadProgress', {
+                filePath,
+                status: 'uploading',
+                message: `파일 업로드 중... (${(stat.size / 1024 / 1024).toFixed(1)}MB)`,
+            });
+        }
+
+        const { GoogleAIFileManager } = require('@google/generative-ai/server');
+        const fileManager = new GoogleAIFileManager(geminiApiKey);
+
+        const uploadResult = await fileManager.uploadFile(filePath, {
+            mimeType,
+            displayName: path.basename(filePath),
+        });
+
+        console.log(`[MediaUpload] Upload complete: ${uploadResult.file.name}, state: ${uploadResult.file.state}`);
+
+        // Poll for ACTIVE state (video processing can take time)
+        let file = uploadResult.file;
+        const isVideo = mimeType.startsWith('video/');
+        if (isVideo && file.state === 'PROCESSING') {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('ai.mediaUploadProgress', {
+                    filePath,
+                    status: 'processing',
+                    message: '동영상 처리 중... (최대 2분 소요)',
+                });
+            }
+
+            const MAX_POLL = 60; // max 60 polls * 2s = 120s
+            for (let i = 0; i < MAX_POLL; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                const result = await fileManager.getFile(file.name);
+                file = result;
+                console.log(`[MediaUpload] Poll ${i + 1}: state=${file.state}`);
+
+                if (file.state === 'ACTIVE') break;
+                if (file.state === 'FAILED') {
+                    return { success: false, error: '동영상 처리 실패 (Gemini File API)' };
+                }
+            }
+
+            if (file.state !== 'ACTIVE') {
+                return { success: false, error: '동영상 처리 타임아웃 (2분 초과)' };
+            }
+        }
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ai.mediaUploadProgress', {
+                filePath,
+                status: 'complete',
+                message: '업로드 완료!',
+            });
+        }
+
+        console.log(`[MediaUpload] Ready: uri=${file.uri}, mimeType=${mimeType}`);
+        return {
+            success: true,
+            fileUri: file.uri,
+            mimeType,
+            fileName: path.basename(filePath),
+        };
+    } catch (err) {
+        console.error('[MediaUpload] Error:', err.message || err);
+        return { success: false, error: `업로드 실패: ${err.message}` };
+    }
+});
+
+// ===================================================================
 //  Templates CRUD (electron-store)
 // ===================================================================
 
@@ -2715,7 +2832,7 @@ ${aiResponses}
     };
 }
 
-ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operationType, projectPath, projectName }) => {
+ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operationType, projectPath, projectName, attachedMediaFiles }) => {
     const engine = getOrCreateEngine(projectId);
     if (engine.isRunning) return { success: false, error: 'Already running' };
 
@@ -2760,6 +2877,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
         geminiApiKey,
         projectContext,
         projectPath: effectivePath,
+        attachedMediaFiles: attachedMediaFiles || [],
     }).catch(err => {
         safelog('[AI] start error:', err.message);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2770,7 +2888,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
     return { success: true, sessionId: engine.sessionId };
 });
 
-ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, operationType, projectPath, projectName }) => {
+ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, operationType, projectPath, projectName, attachedMediaFiles }) => {
     const engine = getOrCreateEngine(projectId);
 
     // If engine is still marked running from previous round, force-reset
@@ -2813,6 +2931,7 @@ ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, 
         projectPath: effectivePath,
         mode: effectiveMode,
         aiMode: aiMode || engine.aiMode,
+        attachedMediaFiles: attachedMediaFiles || [],
     }).catch(err => {
         safelog('[AI] continue error:', err.message);
         // Send error to renderer so user can see it

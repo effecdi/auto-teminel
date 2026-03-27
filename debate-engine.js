@@ -64,6 +64,7 @@ class DebateEngine {
         this.geminiApiKey = '';
         this.projectContext = null;
         this.projectPath = null;
+        this.attachedMediaFiles = [];
         this._activeHandles = [];  // for abort
     }
 
@@ -106,6 +107,7 @@ class DebateEngine {
         this.geminiApiKey = (opts && opts.geminiApiKey) || '';
         this.projectContext = (opts && opts.projectContext) || null;
         this.projectPath = (opts && opts.projectPath) || null;
+        this.attachedMediaFiles = (opts && opts.attachedMediaFiles) || [];
         this.sessionId = crypto.randomUUID();
         this.history.clear();
         this.history.add('user', task);
@@ -139,6 +141,8 @@ class DebateEngine {
         if (opts && opts.aiMode) {
             this.aiMode = opts.aiMode;
         }
+        // Store media files for this turn (consumed once by first Gemini call)
+        this.attachedMediaFiles = (opts && opts.attachedMediaFiles) || [];
         this.history.add('user', userMessage);
         await this._runRounds(callbacks);
     }
@@ -187,8 +191,10 @@ class DebateEngine {
                             resolve();
                         },
                     },
-                    { systemPromptSuffix: modeConfig.geminiSuffix, projectContext, projectPath: this.projectPath }
+                    { systemPromptSuffix: modeConfig.geminiSuffix, projectContext, projectPath: this.projectPath, attachedMediaFiles: this.attachedMediaFiles || [] }
                 );
+                // Consume media after first use
+                this.attachedMediaFiles = [];
                 this._activeHandles.push(handle);
             });
         } finally {
@@ -254,6 +260,9 @@ class DebateEngine {
                 }
             }, GEMINI_TIMEOUT);
 
+            // Consume attached media files (one-shot: cleared after first use)
+            const mediaFiles = opts.attachedMediaFiles || [];
+
             const handle = streamGemini(
                 this.geminiApiKey,
                 this.history.getAll(),
@@ -272,7 +281,7 @@ class DebateEngine {
                         safeResolve();
                     },
                 },
-                { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath }
+                { systemPromptSuffix: opts.suffix, projectContext: opts.projectContext, projectPath: opts.projectPath, attachedMediaFiles: mediaFiles }
             );
             this._activeHandles.push(handle);
         });
@@ -294,6 +303,15 @@ class DebateEngine {
         const skipGemini = this.aiMode === 'claude-solo';
         const skipClaude = this.aiMode === 'gemini-solo';
         const isDual = !skipGemini && !skipClaude && !isSolo;
+
+        // Media files are consumed on first Gemini call only
+        let pendingMediaFiles = this.attachedMediaFiles || [];
+        const consumeMedia = () => {
+            const files = pendingMediaFiles;
+            pendingMediaFiles = [];
+            this.attachedMediaFiles = [];
+            return files;
+        };
 
         try {
             for (let round = 1; round <= maxRounds; round++) {
@@ -325,6 +343,7 @@ class DebateEngine {
                     await this._runGemini(callbacks, {
                         suffix: modeConfig.geminiSuffix,
                         projectContext, projectPath: this.projectPath,
+                        attachedMediaFiles: consumeMedia(),
                     });
                     console.log(`[DebateEngine] Step 2/3: Gemini 응답 완료`);
                     if (!this.running) break;
@@ -362,6 +381,7 @@ class DebateEngine {
                     await this._runGemini(callbacks, {
                         suffix: SOLO_SUFFIX,
                         projectContext, projectPath: this.projectPath,
+                        attachedMediaFiles: consumeMedia(),
                     });
                     if (!this.running) break;
 
