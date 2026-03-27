@@ -3129,8 +3129,10 @@ function finalizeStreamMessage(fullText) {
 }
 
 /**
- * Simple markdown renderer for AI messages.
- * Supports: code blocks, inline code, bold, headers, lists.
+ * Markdown renderer for AI messages.
+ * Supports: code blocks (with language label + copy button), inline code,
+ * bold, italic, strikethrough, headers, unordered/ordered lists,
+ * links, blockquotes, tables, horizontal rules.
  */
 function renderAiMarkdown(text) {
     if (!text) return '';
@@ -3143,38 +3145,101 @@ function renderAiMarkdown(text) {
 
     // Code blocks: ```lang\n...\n```
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        return `<pre><code>${code.trim()}</code></pre>`;
+        const langLabel = lang ? `<span class="code-lang-label">${lang}</span>` : '';
+        const copyBtn = `<button class="code-copy-btn" onclick="copyCodeBlock(this)" title="Copy code">📋</button>`;
+        return `<div class="code-block-wrapper">${langLabel}${copyBtn}<pre><code>${code.trim()}</code></pre></div>`;
     });
 
     // Inline code: `...`
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
+    // Tables: | head | head |\n|---|---|\n| cell | cell |
+    html = html.replace(/((?:^\|.+\|$\n?){2,})/gm, (tableBlock) => {
+        const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+        if (rows.length < 2) return tableBlock;
+        // Check if second row is separator
+        const isSep = /^\|[\s\-:|]+\|$/.test(rows[1]);
+        let tableHtml = '<table class="ai-table">';
+        const startData = isSep ? 2 : 0;
+        if (isSep && rows[0]) {
+            const cells = rows[0].split('|').filter((_, i, a) => i > 0 && i < a.length - 1);
+            tableHtml += '<thead><tr>' + cells.map(c => `<th>${c.trim()}</th>`).join('') + '</tr></thead>';
+        }
+        tableHtml += '<tbody>';
+        for (let i = startData; i < rows.length; i++) {
+            const cells = rows[i].split('|').filter((_, ci, a) => ci > 0 && ci < a.length - 1);
+            tableHtml += '<tr>' + cells.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+        }
+        tableHtml += '</tbody></table>';
+        return tableHtml;
+    });
+
     // Bold: **...**
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-    // Headers: # ## ###
+    // Italic: *...*
+    html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+
+    // Strikethrough: ~~...~~
+    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+    // Headers: # ## ### ####
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-    // Unordered lists: - item
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    // Horizontal rule: ---
+    html = html.replace(/^---$/gm, '<hr>');
+
+    // Blockquotes: > text
+    html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Merge consecutive blockquotes
+    html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
+
+    // Ordered lists: 1. item
+    html = html.replace(/^(\d+)\. (.+)$/gm, '<oli>$2</oli>');
+    html = html.replace(/(<oli>.*?<\/oli>\n?)+/g, (match) => {
+        return '<ol>' + match.replace(/<\/?oli>/g, (tag) => tag.replace('oli', 'li')) + '</ol>';
+    });
+
+    // Unordered lists: - item or * item
+    html = html.replace(/^[\-\*] (.+)$/gm, '<uli>$1</uli>');
+    html = html.replace(/(<uli>.*?<\/uli>\n?)+/g, (match) => {
+        return '<ul>' + match.replace(/<\/?uli>/g, (tag) => tag.replace('uli', 'li')) + '</ul>';
+    });
+
+    // Links: [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="ai-link" onclick="event.preventDefault(); require(\'electron\').shell.openExternal(\'$2\')">$1</a>');
 
     // Paragraphs (double newline)
     html = html.replace(/\n\n/g, '</p><p>');
     html = '<p>' + html + '</p>';
 
-    // Clean up empty paragraphs
+    // Clean up empty paragraphs and fix nesting
     html = html.replace(/<p>\s*<\/p>/g, '');
-    html = html.replace(/<p>(<h[123]>)/g, '$1');
-    html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
-    html = html.replace(/<p>(<pre>)/g, '$1');
-    html = html.replace(/(<\/pre>)<\/p>/g, '$1');
-    html = html.replace(/<p>(<ul>)/g, '$1');
-    html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<(?:h[1234]|pre|ul|ol|blockquote|table|div|hr)[\s>])/g, '$1');
+    html = html.replace(/(<\/(?:h[1234]|pre|ul|ol|blockquote|table|div|hr)>)<\/p>/g, '$1');
 
     return html;
+}
+
+/** Copy code block content to clipboard */
+function copyCodeBlock(btn) {
+    const wrapper = btn.closest('.code-block-wrapper');
+    if (!wrapper) return;
+    const code = wrapper.querySelector('code');
+    if (!code) return;
+    const text = code.textContent;
+    if (clipboard) {
+        clipboard.writeText(text);
+    } else {
+        navigator.clipboard.writeText(text);
+    }
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
 }
 
 // --- AI Chat IPC Listeners ---
