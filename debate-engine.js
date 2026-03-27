@@ -94,6 +94,15 @@ class DebateEngine {
         this._activeHandles = [];
     }
 
+    /** Reset conversation history for a fresh start */
+    resetHistory() {
+        this.stop();
+        this.history = new ConversationHistory();
+        this.task = null;
+        this.round = 0;
+        this.sessionId = null;
+    }
+
     /**
      * Start a new conversation.
      */

@@ -74,13 +74,12 @@ const aiChatActiveMap = new Map();   // projectId -> null | 'claude' | 'gemini' 
 
 // AI Recommendation Buttons
 const AI_RECOMMENDATION_BUTTONS = [
-    '디자인 전면재수정',
-    '전체페이지 검증',
-    '보안강화',
-    '개발추가',
-    '개발기능강화',
-    '자동화 구축',
-    '코드 리뷰',
+    '이어서 더 자세히 설명해줘',
+    '코드로 구현해줘',
+    '코드 리뷰 해줘',
+    '버그 있는지 확인해줘',
+    '성능 개선 방법은?',
+    '테스트 코드 작성해줘',
 ];
 
 // Session persistence - debounce timer for saving history
@@ -2783,22 +2782,17 @@ function hideAiStatusBar() {
     }
 }
 
-/** Show big "대화중이에요..." center indicator */
+/** Show inline speaking indicator (replaces old center overlay) */
 function showAiSpeakingIndicator(who) {
     if (!aiChatMode) return;
     const overlay = document.getElementById('aiSpeakingOverlay');
-    const avatar = document.getElementById('aiSpeakingAvatar');
+    const dot = document.getElementById('aiSpeakingDot');
     const name = document.getElementById('aiSpeakingName');
     if (!overlay) return;
 
     const aiName = who === 'gemini' ? 'Gemini' : 'Claude';
-    if (who === 'gemini') {
-        if (avatar) avatar.textContent = '💎';
-        if (name) { name.textContent = 'Gemini'; name.className = 'ai-speaking-name gemini'; }
-    } else {
-        if (avatar) avatar.textContent = '🤖';
-        if (name) { name.textContent = 'Claude'; name.className = 'ai-speaking-name claude'; }
-    }
+    if (dot) dot.className = `ai-speaking-inline-dot ${who}`;
+    if (name) { name.textContent = aiName; name.className = `ai-speaking-inline-name ${who}`; }
     overlay.style.display = '';
 
     // Update status bar with specific AI name
@@ -2842,6 +2836,38 @@ function stopAiChat() {
     ipcRenderer.invoke('ai.stop', { projectId: currentProject.id });
 }
 
+/** Reset AI Chat — start a new conversation for current project */
+function resetAiChat() {
+    if (!currentProject) return;
+    const projectId = currentProject.id;
+
+    // Stop any in-progress streaming
+    if (aiChatStreaming && aiChatStreaming.projectId === projectId) {
+        ipcRenderer.invoke('ai.stop', { projectId });
+        aiChatStreaming = null;
+    }
+
+    // Clear messages for this project
+    aiChatMessages.delete(projectId);
+    aiChatStarted.delete(projectId);
+    aiBgStreamBuffer.delete(projectId);
+    aiChatActiveMap.delete(projectId);
+
+    // Reset conversation in backend
+    ipcRenderer.invoke('ai.reset', { projectId }).catch(() => {});
+
+    // Hide indicators
+    hideAiSpeakingIndicator();
+    hideAiStatusBar();
+
+    // Re-render (will show placeholder)
+    renderAiChatMessages();
+
+    // Focus textarea
+    const textarea = document.getElementById('aiChatTextarea');
+    if (textarea) textarea.focus();
+}
+
 function renderAiChatMessages() {
     const container = document.getElementById('aiChatMessages');
     if (!container) return;
@@ -2862,7 +2888,7 @@ function renderAiChatMessages() {
     const shouldCollapseHistory = messages.length > 5;
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
-        const div = appendAiMessageDom(container, msg.role, msg.content);
+        const div = appendAiMessageDom(container, msg.role, msg.content, msg.timestamp);
         if (shouldCollapseHistory && i < messages.length - 4) {
             div.classList.add('ai-msg-history-hidden');
             div.style.display = 'none';
@@ -2927,12 +2953,14 @@ function appendAiMessage(role, content) {
     container.scrollTop = container.scrollHeight;
 }
 
-function appendAiMessageDom(container, role, content) {
+function appendAiMessageDom(container, role, content, timestamp) {
     const div = document.createElement('div');
     div.className = `ai-msg ai-msg-${role}`;
 
+    const timeStr = _formatMsgTime(timestamp);
+
     if (role === 'gemini' || role === 'claude') {
-        // Header with avatar, name, role badge
+        // Header with avatar, name, role badge, timestamp, copy button
         const header = document.createElement('div');
         header.className = 'ai-msg-header';
 
@@ -2951,6 +2979,20 @@ function appendAiMessageDom(container, role, content) {
         roleBadge.textContent = role === 'gemini' ? 'Designer' : 'Developer';
         header.appendChild(roleBadge);
 
+        if (timeStr) {
+            const timeEl = document.createElement('span');
+            timeEl.className = 'ai-msg-time';
+            timeEl.textContent = timeStr;
+            header.appendChild(timeEl);
+        }
+
+        // Copy button for AI messages
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'ai-msg-copy-btn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => _copyMessageText(content, copyBtn));
+        header.appendChild(copyBtn);
+
         div.appendChild(header);
 
         // Bubble with content
@@ -2966,6 +3008,23 @@ function appendAiMessageDom(container, role, content) {
         body.className = 'ai-msg-body';
         body.innerHTML = renderAiMarkdown(content);
         div.appendChild(body);
+
+        // User message actions (copy + time)
+        const actions = document.createElement('div');
+        actions.className = 'ai-msg-user-actions';
+        if (timeStr) {
+            const timeEl = document.createElement('span');
+            timeEl.className = 'ai-msg-time';
+            timeEl.style.opacity = '1';
+            timeEl.textContent = timeStr;
+            actions.appendChild(timeEl);
+        }
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'ai-msg-user-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => _copyMessageText(content, copyBtn));
+        actions.appendChild(copyBtn);
+        div.appendChild(actions);
     } else {
         // error, system
         const body = document.createElement('div');
@@ -2980,6 +3039,28 @@ function appendAiMessageDom(container, role, content) {
 
     container.appendChild(div);
     return div;
+}
+
+/** Format message timestamp */
+function _formatMsgTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const h = d.getHours().toString().padStart(2, '0');
+    const m = d.getMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+}
+
+/** Copy message text to clipboard */
+function _copyMessageText(text, btn) {
+    if (clipboard) {
+        clipboard.writeText(text);
+    } else {
+        navigator.clipboard.writeText(text);
+    }
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
 }
 
 function startStreamingMessage(role) {
@@ -3042,6 +3123,12 @@ function startStreamingMessage(role) {
     return div;
 }
 
+/** Check if user is near bottom of chat (within 80px) */
+function _isNearBottom(container) {
+    if (!container) return true;
+    return (container.scrollHeight - container.scrollTop - container.clientHeight) < 80;
+}
+
 function appendStreamToken(token) {
     if (!aiChatStreaming) return;
     aiChatStreaming.text += token;
@@ -3058,10 +3145,11 @@ function appendStreamToken(token) {
         aiChatStreaming._renderPending = true;
         requestAnimationFrame(() => {
             if (aiChatStreaming) {
+                const container = document.getElementById('aiChatMessages');
+                const shouldScroll = _isNearBottom(container);
                 aiChatStreaming.body.innerHTML = renderAiMarkdown(aiChatStreaming.text);
                 aiChatStreaming._renderPending = false;
-                const container = document.getElementById('aiChatMessages');
-                if (container) container.scrollTop = container.scrollHeight;
+                if (container && shouldScroll) container.scrollTop = container.scrollHeight;
             }
         });
     }
@@ -3146,7 +3234,7 @@ function renderAiMarkdown(text) {
     // Code blocks: ```lang\n...\n```
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
         const langLabel = lang ? `<span class="code-lang-label">${lang}</span>` : '';
-        const copyBtn = `<button class="code-copy-btn" onclick="copyCodeBlock(this)" title="Copy code">📋</button>`;
+        const copyBtn = `<button class="code-copy-btn" onclick="copyCodeBlock(this)" title="Copy code">Copy</button>`;
         return `<div class="code-block-wrapper">${langLabel}${copyBtn}<pre><code>${code.trim()}</code></pre></div>`;
     });
 
@@ -3237,7 +3325,7 @@ function copyCodeBlock(btn) {
         navigator.clipboard.writeText(text);
     }
     const orig = btn.textContent;
-    btn.textContent = '✓';
+    btn.textContent = '✓ Copied';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
 }

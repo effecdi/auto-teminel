@@ -495,7 +495,7 @@
             resize: none;
             outline: none;
             min-height: 20px;
-            max-height: 120px;
+            max-height: 200px;
             line-height: 1.4;
         }
         #aiChatTextarea:focus {
@@ -630,6 +630,259 @@
 
         /* Position the messages container as relative for overlay */
         #ai-chat-container { position: relative; }
+
+        /* ===== AI Speaking Inline Indicator (replaces center overlay) ===== */
+        .ai-speaking-inline {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 20px;
+            background: rgba(56, 139, 253, 0.06);
+            border-bottom: 1px solid rgba(56, 139, 253, 0.1);
+            font-size: 12px;
+            animation: ai-inline-fade-in 0.2s ease-out;
+        }
+        @keyframes ai-inline-fade-in {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .ai-speaking-inline-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #58a6ff;
+            animation: ai-dot-pulse 1.5s ease-in-out infinite;
+        }
+        .ai-speaking-inline-dot.claude { background: #69f0ae; }
+        .ai-speaking-inline-dot.gemini { background: #a78bfa; }
+        .ai-speaking-inline-name {
+            font-weight: 600;
+            color: #58a6ff;
+        }
+        .ai-speaking-inline-name.claude { color: #69f0ae; }
+        .ai-speaking-inline-name.gemini { color: #a78bfa; }
+        .ai-speaking-inline-text {
+            color: #8b949e;
+        }
+        .ai-speaking-inline-dots span {
+            animation: aiDotBounce 1.4s ease-in-out infinite;
+            color: #8b949e;
+            font-weight: 700;
+        }
+        .ai-speaking-inline-dots span:nth-child(1) { animation-delay: 0s; }
+        .ai-speaking-inline-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .ai-speaking-inline-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        /* ===== AI Chat Placeholder ===== */
+        .placeholder-icon-ai {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+        .placeholder-ai-c { color: #69f0ae; }
+        .placeholder-ai-plus { color: #484f58; font-size: 24px; margin: 0 2px; }
+        .placeholder-ai-g { color: #a78bfa; }
+
+        /* ===== New Chat Button ===== */
+        .ai-chat-newchat-btn {
+            background: rgba(56, 139, 253, 0.08);
+            border: 1px solid rgba(56, 139, 253, 0.25);
+            color: #58a6ff;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 5px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .ai-chat-newchat-btn:hover {
+            background: rgba(56, 139, 253, 0.18);
+            border-color: #58a6ff;
+        }
+
+        /* ===== Code Block Wrapper (inside AI messages) ===== */
+        .code-block-wrapper {
+            position: relative;
+            margin: 10px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #30363d;
+            background: #0d1117;
+        }
+        .code-block-wrapper pre {
+            margin: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            padding: 12px 14px !important;
+        }
+        .code-lang-label {
+            display: inline-block;
+            padding: 2px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #8b949e;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            font-family: var(--font-mono, 'Roboto Mono', monospace);
+        }
+        .code-copy-btn {
+            position: absolute;
+            top: 4px;
+            right: 6px;
+            background: rgba(110, 118, 129, 0.15);
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            opacity: 0;
+            z-index: 2;
+        }
+        .code-block-wrapper:hover .code-copy-btn {
+            opacity: 1;
+        }
+        .code-copy-btn:hover {
+            background: rgba(110, 118, 129, 0.3);
+            color: #e6edf3;
+        }
+        .code-copy-btn.copied {
+            color: #3fb950;
+            border-color: #3fb950;
+        }
+
+        /* ===== AI Table ===== */
+        .ai-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+        .ai-table th, .ai-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border: 1px solid #30363d;
+        }
+        .ai-table th {
+            background: #161b22;
+            color: #e6edf3;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .ai-table td {
+            color: #c9d1d9;
+        }
+        .ai-table tbody tr:hover {
+            background: rgba(56, 139, 253, 0.04);
+        }
+
+        /* ===== AI Links ===== */
+        .ai-link {
+            color: #58a6ff;
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.15s;
+        }
+        .ai-link:hover {
+            border-bottom-color: #58a6ff;
+        }
+
+        /* ===== Blockquotes ===== */
+        .ai-msg blockquote, .ai-msg-bubble blockquote {
+            border-left: 3px solid #30363d;
+            margin: 8px 0;
+            padding: 4px 12px;
+            color: #8b949e;
+            background: rgba(110, 118, 129, 0.06);
+            border-radius: 0 4px 4px 0;
+        }
+
+        /* ===== Horizontal Rule ===== */
+        .ai-msg hr, .ai-msg-bubble hr {
+            border: none;
+            border-top: 1px solid #30363d;
+            margin: 12px 0;
+        }
+
+        /* ===== Message Timestamp ===== */
+        .ai-msg-time {
+            font-size: 10px;
+            color: #484f58;
+            margin-left: 4px;
+        }
+
+        /* ===== Message Copy Button ===== */
+        .ai-msg-copy-btn {
+            background: none;
+            border: none;
+            color: #484f58;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: all 0.15s;
+            margin-left: auto;
+        }
+        .ai-msg:hover .ai-msg-copy-btn,
+        .ai-msg-header:hover .ai-msg-copy-btn {
+            opacity: 1;
+        }
+        .ai-msg-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #8b949e;
+        }
+        .ai-msg-copy-btn.copied {
+            color: #3fb950;
+        }
+
+        /* ===== User message improvements ===== */
+        .ai-msg-user {
+            position: relative;
+        }
+        .ai-msg-user:hover .ai-msg-user-actions {
+            opacity: 1;
+        }
+        .ai-msg-user-actions {
+            position: absolute;
+            top: -8px;
+            right: 4px;
+            opacity: 0;
+            transition: opacity 0.15s;
+            display: flex;
+            gap: 2px;
+        }
+        .ai-msg-user-copy {
+            background: #161b22;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .ai-msg-user-copy:hover {
+            color: #e6edf3;
+        }
+
+        /* ===== Strikethrough ===== */
+        .ai-msg del, .ai-msg-bubble del {
+            color: #8b949e;
+            text-decoration: line-through;
+        }
+
+        /* ===== Emphasis ===== */
+        .ai-msg em, .ai-msg-bubble em {
+            font-style: italic;
+            color: #e6edf3;
+        }
 
         /* ===== Timeline Panel (hidden) ===== */
         .timeline-panel { display: none; }

@@ -2948,6 +2948,15 @@ ipcMain.handle('ai.stop', (event, { projectId }) => {
     return { success: true };
 });
 
+ipcMain.handle('ai.reset', (event, { projectId }) => {
+    const engine = debateEngines.get(projectId);
+    if (engine) {
+        engine.stop();
+        engine.resetHistory();
+    }
+    return { success: true };
+});
+
 ipcMain.handle('ai.getState', (event, { projectId }) => {
     const engine = debateEngines.get(projectId);
     if (!engine) return { running: false, historyLength: 0 };
