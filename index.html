@@ -22,28 +22,32 @@
          * - 접근성(a11y): 폰트 사이즈 증가, 색상 대비 강화
          */
 
-        /* 변수 재정의 (styles.css에 없다고 가정하고 기본값 설정, 실제 프로젝트에서는 styles.css 활용) */
+        /* 변수 재정의 */
         :root {
-            --bg-primary: #0d1117; /* GitHub Dark Default */
+            --bg-primary: #0d1117;
             --bg-secondary: #161b22;
             --bg-tertiary: #21262d;
+            --bg-elevated: #1c2129;
             --border-primary: #30363d;
-            --text-primary: #e6edf3;
-            --text-secondary: #c9d1d9;
-            --text-muted: #8b949e;
-            --accent: #58a6ff; /* Blue */
-            --claude-accent: #69f0ae; /* Green */
-            --gemini-accent: #a78bfa; /* Purple */
-            --danger: #f85149; /* Red */
-            --success: #3fb950; /* Green */
-            --warning: #d29922; /* Yellow */
-            --font-ui: 'Inter', sans-serif;
+            --border-subtle: #262c36;
+            --text-primary: #f0f6fc;
+            --text-secondary: #d2d8e0;
+            --text-muted: #9198a1;
+            --accent: #58a6ff;
+            --claude-accent: #69f0ae;
+            --gemini-accent: #b392f0;
+            --danger: #f85149;
+            --success: #3fb950;
+            --warning: #d29922;
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-mono: 'Roboto Mono', 'Menlo', 'Monaco', monospace;
+            --msg-radius: 22px;
+            --bubble-shadow: 0 4px 16px rgba(0,0,0,0.25);
         }
 
-        .toolbar-btn-ai { color: var(--claude-accent); font-weight: 600; }
+        .toolbar-btn-ai { color: var(--claude-accent); font-weight: 600; font-size: 14px; }
         .toolbar-btn-ai.active { background: rgba(0,230,118,0.15); color: var(--claude-accent); border-color: var(--claude-accent); }
-        .toolbar-separator { color: var(--text-muted); margin: 0 8px; user-select: none; font-size: 14px; } /* 폰트 사이즈 증가 */
+        .toolbar-separator { color: var(--text-muted); margin: 0 10px; user-select: none; font-size: 15px; }
 
         #ai-chat-container {
             display: none;
@@ -52,52 +56,50 @@
             min-height: 0;
             overflow: hidden;
             background: var(--bg-primary);
-            color: var(--text-primary); /* 기본 텍스트 색상 설정 */
+            color: var(--text-primary);
             font-family: var(--font-ui);
+            font-size: 15px;
         }
 
         /* ===== AI Chat Project Tabs ===== */
         .ai-chat-project-tabs {
             display: flex;
             align-items: center;
-            gap: 4px; /* 간격 증가 */
-            padding: 8px 16px 0; /* 패딩 증가 */
+            gap: 6px;
+            padding: 10px 20px 0;
             background: var(--bg-primary);
             overflow-x: auto;
             flex-shrink: 0;
             scrollbar-width: none;
-            border-bottom: 1px solid var(--border-primary); /* 탭 아래 보더 */
+            border-bottom: 1px solid var(--border-primary);
         }
         .ai-chat-project-tabs::-webkit-scrollbar { display: none; }
         .ai-chat-project-tab {
             display: flex;
             align-items: center;
-            gap: 8px; /* 간격 증가 */
-            padding: 9px 18px; /* 패딩 증가 */
+            gap: 8px;
+            padding: 10px 20px;
             background: transparent;
             border: 1px solid transparent;
             border-bottom: none;
-            border-radius: 12px 12px 0 0; /* 라운드 증가 */
+            border-radius: 14px 14px 0 0;
             color: var(--text-muted);
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
+            transition: all 0.2s ease;
             position: relative;
         }
         .ai-chat-project-tab:hover {
             color: var(--text-secondary);
-            background: rgba(255,255,255,0.06); /* 호버 배경 미세하게 밝게 */
-            transform: translateY(-1px); /* 마이크로 인터랙션 */
+            background: rgba(255,255,255,0.05);
         }
         .ai-chat-project-tab.active {
             color: var(--text-primary);
             background: var(--bg-secondary);
             border-color: var(--border-primary);
             font-weight: 600;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.2); /* 뉴모피즘 그림자 */
-            transform: translateY(0);
         }
         .ai-chat-project-tab.active::after {
             content: '';
@@ -105,80 +107,78 @@
             bottom: -1px;
             left: 0;
             right: 0;
-            height: 3px; /* 두께 증가 */
+            height: 3px;
             background: var(--accent);
             border-radius: 3px 3px 0 0;
         }
         .ai-chat-tab-badge {
             display: inline-block;
-            min-width: 10px; /* 크기 증가 */
-            height: 10px; /* 크기 증가 */
+            min-width: 10px;
+            height: 10px;
             border-radius: 50%;
             background: var(--success);
             flex-shrink: 0;
         }
-        .ai-chat-tab-badge.has-draft {
-            background: var(--warning);
-        }
+        .ai-chat-tab-badge.has-draft { background: var(--warning); }
         .ai-chat-tab-badge.has-active {
             background: var(--accent);
             animation: ai-tab-pulse 1.5s infinite;
         }
         @keyframes ai-tab-pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.6; transform: scale(0.95); } /* 마이크로 인터랙션 */
+            50% { opacity: 0.6; transform: scale(0.95); }
         }
 
         /* ===== AI Chat Header ===== */
         .ai-chat-header {
             display: flex;
             align-items: center;
-            padding: 12px 20px; /* 패딩 증가 */
+            padding: 14px 24px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-primary);
-            gap: 16px; /* 간격 증가 */
-            min-height: 52px; /* 최소 높이 증가 */
+            gap: 16px;
+            min-height: 56px;
         }
         .ai-chat-header-left {
             display: flex;
             align-items: center;
-            gap: 10px; /* 간격 증가 */
+            gap: 12px;
             flex-shrink: 0;
         }
         .ai-chat-back-btn {
             background: none;
             border: none;
             color: var(--text-muted);
-            font-size: 20px; /* 폰트 사이즈 증가 */
+            font-size: 22px;
             cursor: pointer;
-            padding: 4px 8px; /* 패딩 증가 */
-            border-radius: 6px;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
+            padding: 6px 10px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
         }
         .ai-chat-back-btn:hover {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
             color: var(--text-primary);
-            transform: translateX(-2px); /* 마이크로 인터랙션 */
         }
         .ai-chat-project-icon {
-            font-size: 22px; /* 폰트 사이즈 증가 */
+            font-size: 24px;
             color: var(--text-secondary);
         }
         .ai-chat-project-name {
-            font-size: 16px; /* 폰트 사이즈 증가 */
-            font-weight: 700; /* 강조 */
+            font-size: 17px;
+            font-weight: 700;
             color: var(--text-primary);
+            letter-spacing: -0.01em;
         }
         .ai-chat-separator {
             color: var(--border-primary);
-            font-size: 16px; /* 폰트 사이즈 증가 */
+            font-size: 18px;
             margin: 0 4px;
         }
         .ai-chat-operation-select {
             background: none;
             border: none;
             color: var(--accent);
-            font-size: 15px; /* 폰트 사이즈 증가 */
+            font-size: 15px;
             font-weight: 500;
             cursor: pointer;
             outline: none;
@@ -186,11 +186,10 @@
             font-family: var(--font-ui);
             appearance: none;
             -webkit-appearance: none;
-            transition: all 0.2s ease-in-out;
+            transition: color 0.2s ease;
         }
         .ai-chat-operation-select:hover {
             text-decoration: underline;
-            color: var(--accent);
         }
         .ai-chat-operation-select option {
             background: var(--bg-tertiary);
@@ -203,40 +202,37 @@
             display: flex;
             justify-content: flex-end;
             align-items: center;
-            gap: 12px; /* 간격 증가 */
+            gap: 14px;
         }
 
         /* AI Mode Tabs */
         .ai-mode-tabs {
             display: flex;
             background: var(--bg-tertiary);
-            border-radius: 10px; /* 라운드 증가 */
-            padding: 3px; /* 패딩 증가 */
-            gap: 3px;
+            border-radius: 12px;
+            padding: 4px;
+            gap: 4px;
         }
         .ai-mode-tab {
             background: none;
             border: none;
             color: var(--text-muted);
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            font-size: 14px;
             font-weight: 500;
-            padding: 7px 16px; /* 패딩 증가 */
-            border-radius: 8px;
+            padding: 8px 18px;
+            border-radius: 9px;
             cursor: pointer;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
+            transition: all 0.2s ease;
             white-space: nowrap;
         }
         .ai-mode-tab:hover {
             color: var(--text-secondary);
-            background: rgba(255,255,255,0.08);
-            transform: translateY(-1px); /* 마이크로 인터랙션 */
+            background: rgba(255,255,255,0.06);
         }
         .ai-mode-tab.active {
-            background: rgba(56,139,253,0.25); /* 액티브 배경색 변경 */
+            background: rgba(56,139,253,0.2);
             color: var(--accent);
             font-weight: 600;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2); /* 뉴모피즘 그림자 */
-            transform: translateY(0);
         }
 
         .ai-chat-header-right {
@@ -246,31 +242,35 @@
             background: var(--bg-tertiary);
             color: var(--text-primary);
             border: 1px solid var(--border-primary);
-            border-radius: 10px; /* 라운드 증가 */
-            padding: 7px 14px; /* 패딩 증가 */
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            border-radius: 10px;
+            padding: 8px 16px;
+            font-size: 14px;
             cursor: pointer;
             outline: none;
             appearance: none;
             -webkit-appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 10 6'%3E%3Cpath fill='%238b949e' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); /* 아이콘 크기 증가 */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 10 6'%3E%3Cpath fill='%239198a1' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 10px center; /* 위치 조정 */
-            padding-right: 30px; /* 패딩 증가 */
-            transition: all 0.2s ease-in-out;
+            background-position: right 12px center;
+            padding-right: 32px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .ai-chat-mode-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88,166,255,0.2); } /* 포커스 효과 강화 */
+        .ai-chat-mode-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88,166,255,0.15); }
 
         /* ===== AI Chat Messages ===== */
         .ai-chat-messages {
             flex: 1;
             min-height: 0;
             overflow-y: auto;
-            padding: 24px 32px; /* 패딩 증가 */
+            padding: 28px 36px;
             display: flex;
             flex-direction: column;
-            gap: 20px; /* 간격 증가 */
+            gap: 28px;
         }
+        .ai-chat-messages::-webkit-scrollbar { width: 6px; }
+        .ai-chat-messages::-webkit-scrollbar-track { background: transparent; }
+        .ai-chat-messages::-webkit-scrollbar-thumb { background: var(--border-primary); border-radius: 3px; }
+        .ai-chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
         .ai-chat-placeholder {
             display: flex;
@@ -281,159 +281,159 @@
             color: var(--text-muted);
             text-align: center;
         }
-        .ai-chat-placeholder h2 { font-size: 24px; margin: 16px 0 8px; color: var(--text-secondary); font-weight: 700; } /* 폰트 사이즈 및 강조 */
-        .ai-chat-placeholder p { font-size: 15px; color: var(--text-muted); } /* 폰트 사이즈 증가 */
-        .ai-chat-placeholder .placeholder-icon { font-size: 48px; opacity: 0.6; } /* 아이콘 크기 증가 */
-        .ai-chat-placeholder .placeholder-hint { font-size: 14px; margin-top: 12px; color: var(--text-muted); } /* 폰트 사이즈 증가 */
+        .ai-chat-placeholder h2 { font-size: 26px; margin: 18px 0 10px; color: var(--text-secondary); font-weight: 700; }
+        .ai-chat-placeholder p { font-size: 16px; color: var(--text-muted); line-height: 1.6; }
+        .ai-chat-placeholder .placeholder-icon { font-size: 52px; opacity: 0.6; }
+        .ai-chat-placeholder .placeholder-hint { font-size: 14px; margin-top: 14px; color: var(--text-muted); }
 
         /* Message bubbles */
         .ai-msg {
-            max-width: 90%; /* 최대 너비 증가 */
-            font-size: 15px; /* 폰트 사이즈 증가 */
-            line-height: 1.8; /* 줄 간격 증가 */
+            max-width: 92%;
+            font-size: 16px;
+            line-height: 1.85;
             word-wrap: break-word;
             white-space: pre-wrap;
         }
         .ai-msg-user {
             align-self: flex-end;
-            background: #1a3a4a; /* 사용자 메시지 배경 */
+            background: linear-gradient(135deg, #1a3d52, #1a3048);
             color: var(--text-primary);
-            padding: 14px 20px; /* 패딩 증가 */
-            border-radius: 20px 20px 6px 20px; /* 라운드 조정 */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2); /* 뉴모피즘 그림자 */
-            border: 1px solid rgba(26,58,74,0.3);
+            padding: 16px 22px;
+            border-radius: var(--msg-radius) var(--msg-radius) 6px var(--msg-radius);
+            box-shadow: var(--bubble-shadow);
+            border: 1px solid rgba(88,166,255,0.12);
+            font-size: 16px;
         }
         .ai-msg-gemini,
         .ai-msg-claude {
             align-self: flex-start;
             display: flex;
             flex-direction: column;
-            gap: 8px; /* 간격 증가 */
+            gap: 10px;
         }
         .ai-msg-header {
             display: flex;
             align-items: center;
-            gap: 10px; /* 간격 증가 */
+            gap: 12px;
         }
         .ai-msg-avatar {
-            width: 40px; /* 아바타 크기 증가 */
-            height: 40px; /* 아바타 크기 증가 */
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px; /* 폰트 사이즈 증가 */
+            font-size: 20px;
             font-weight: 700;
             flex-shrink: 0;
-            border: 2px solid transparent; /* 테두리 추가 */
+            border: 2px solid transparent;
         }
         .ai-msg-gemini .ai-msg-avatar {
-            background: #1a1a3d;
+            background: rgba(179,146,240,0.12);
             border-color: var(--gemini-accent);
         }
         .ai-msg-claude .ai-msg-avatar {
-            background: #1a2e2a;
+            background: rgba(105,240,174,0.1);
             border-color: var(--claude-accent);
         }
         .ai-msg-name {
-            font-size: 16px; /* 폰트 사이즈 증가 */
-            font-weight: 700; /* 강조 */
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
         }
         .ai-msg-gemini .ai-msg-name { color: var(--gemini-accent); }
         .ai-msg-claude .ai-msg-name { color: var(--claude-accent); }
         .ai-msg-role {
-            font-size: 12px; /* 폰트 사이즈 증가 */
+            font-size: 12px;
             font-weight: 500;
-            padding: 2px 8px; /* 패딩 증가 */
+            padding: 3px 10px;
             border-radius: 6px;
             color: var(--text-muted);
-            background: rgba(139,148,158,0.15); /* 배경색 조정 */
+            background: rgba(145,152,161,0.12);
         }
         .ai-msg-typing-indicator {
-            font-size: 13px; /* 폰트 사이즈 증가 */
+            font-size: 14px;
             color: var(--success);
             display: flex;
             align-items: center;
-            gap: 6px; /* 간격 증가 */
-            margin-left: 50px; /* 아바타 너비 + 간격 */
+            gap: 7px;
+            margin-left: 56px;
         }
         .ai-msg-typing-indicator .typing-dot {
-            width: 7px; /* 크기 증가 */
-            height: 7px; /* 크기 증가 */
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background: var(--success);
             display: inline-block;
             animation: typingDotPulse 1.4s ease-in-out infinite;
         }
-        /* ● ● ● Typing dots bubble (shown before text arrives) */
+        /* Typing dots bubble */
         .ai-typing-dots-bubble {
             display: flex;
             align-items: center;
-            gap: 8px; /* 간격 증가 */
-            padding: 6px 0;
-            margin-left: 50px; /* 아바타 너비 + 간격 */
+            gap: 8px;
+            padding: 8px 0;
+            margin-left: 56px;
         }
         .ai-typing-dots-bubble .dot {
-            width: 10px; /* 크기 증가 */
-            height: 10px; /* 크기 증가 */
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             background: var(--text-muted);
             animation: typingDotBounce 1.4s ease-in-out infinite;
         }
-        .ai-msg-claude .ai-typing-dots-bubble .dot {
-            background: var(--claude-accent);
-        }
-        .ai-msg-gemini .ai-typing-dots-bubble .dot {
-            background: var(--gemini-accent);
-        }
+        .ai-msg-claude .ai-typing-dots-bubble .dot { background: var(--claude-accent); }
+        .ai-msg-gemini .ai-typing-dots-bubble .dot { background: var(--gemini-accent); }
         .ai-typing-dots-bubble .dot:nth-child(1) { animation-delay: 0s; }
         .ai-typing-dots-bubble .dot:nth-child(2) { animation-delay: 0.2s; }
         .ai-typing-dots-bubble .dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes typingDotBounce {
-            0%, 60%, 100% { opacity: 0.4; transform: translateY(0); } /* 투명도 및 애니메이션 조정 */
-            30% { opacity: 1; transform: translateY(-6px); }
+            0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+            30% { opacity: 1; transform: translateY(-5px); }
         }
         @keyframes typingDotPulse {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
         }
         .ai-msg-bubble {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 16px; /* 라운드 증가 */
-            padding: 14px 20px; /* 패딩 증가 */
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 18px;
+            padding: 18px 24px;
             color: var(--text-primary);
-            margin-left: 50px; /* 아바타 너비 + 간격 */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2); /* 뉴모피즘 그림자 */
+            margin-left: 56px;
+            box-shadow: var(--bubble-shadow);
+            font-size: 16px;
+            line-height: 1.85;
         }
         .ai-msg-gemini .ai-msg-bubble {
-            border-color: rgba(167,139,250,0.25);
+            border-color: rgba(179,146,240,0.18);
+            border-left: 3px solid rgba(179,146,240,0.4);
         }
         .ai-msg-claude .ai-msg-bubble {
-            border-color: rgba(105,240,174,0.25);
+            border-color: rgba(105,240,174,0.18);
+            border-left: 3px solid rgba(105,240,174,0.35);
         }
 
         .ai-msg-error {
             align-self: center;
-            background: rgba(248,81,73,0.15); /* 배경색 강화 */
+            background: rgba(248,81,73,0.1);
             color: var(--danger);
-            font-size: 14px; /* 폰트 사이즈 증가 */
-            padding: 10px 20px; /* 패딩 증가 */
-            border-radius: 10px; /* 라운드 증가 */
-            border: 1px solid rgba(248,81,73,0.3);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            font-size: 15px;
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: 1px solid rgba(248,81,73,0.25);
         }
         .ai-msg-system {
             align-self: center;
             color: var(--success);
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            font-size: 14px;
             font-weight: 500;
-            padding: 8px 16px; /* 패딩 증가 */
-            background: rgba(63,185,80,0.1); /* 배경색 조정 */
-            border: 1px solid rgba(63,185,80,0.25);
-            border-radius: 10px; /* 라운드 증가 */
+            padding: 10px 20px;
+            background: rgba(63,185,80,0.08);
+            border: 1px solid rgba(63,185,80,0.2);
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         /* Streaming cursor */
@@ -443,7 +443,7 @@
             animation: ai-blink 0.8s infinite;
             display: inline-block;
             margin-left: 2px;
-            transform: translateY(1px); /* 줄 높이 맞추기 */
+            color: var(--accent);
         }
         @keyframes ai-blink {
             0%, 50% { opacity: 1; }
@@ -452,110 +452,110 @@
 
         /* Code blocks inside AI messages */
         .ai-msg pre, .ai-msg-bubble pre {
-            background: var(--bg-primary);
+            background: #0d1117;
             border: 1px solid var(--border-primary);
-            border-radius: 10px; /* 라운드 증가 */
-            padding: 12px 16px; /* 패딩 증가 */
-            margin: 10px 0;
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin: 12px 0;
             overflow-x: auto;
-            font-size: 13px; /* 폰트 사이즈 증가 */
-            line-height: 1.6;
+            font-size: 14px;
+            line-height: 1.65;
         }
         .ai-msg code, .ai-msg-bubble code {
             font-family: var(--font-mono);
-            font-size: 13px; /* 폰트 사이즈 증가 */
+            font-size: 14px;
         }
         .ai-msg p code, .ai-msg-bubble p code {
-            background: rgba(110,118,129,0.25); /* 배경색 강화 */
-            padding: 3px 8px; /* 패딩 증가 */
+            background: rgba(110,118,129,0.2);
+            padding: 3px 8px;
             border-radius: 6px;
+            font-size: 14px;
+            color: #e6edf3;
         }
         .ai-msg h1, .ai-msg h2, .ai-msg h3,
         .ai-msg-bubble h1, .ai-msg-bubble h2, .ai-msg-bubble h3 {
-            font-size: 17px; /* 폰트 사이즈 증가 */
-            margin: 14px 0 6px; /* 마진 증가 */
+            font-size: 18px;
+            margin: 16px 0 8px;
             color: var(--text-primary);
             font-weight: 700;
+            letter-spacing: -0.01em;
         }
         .ai-msg strong, .ai-msg-bubble strong { font-weight: 700; color: var(--text-primary); }
         .ai-msg ul, .ai-msg ol,
-        .ai-msg-bubble ul, .ai-msg-bubble ol { padding-left: 24px; margin: 6px 0; } /* 패딩 증가 */
-        .ai-msg li, .ai-msg-bubble li { margin-bottom: 4px; } /* 리스트 간격 */
+        .ai-msg-bubble ul, .ai-msg-bubble ol { padding-left: 26px; margin: 8px 0; }
+        .ai-msg li, .ai-msg-bubble li { margin-bottom: 5px; }
 
         /* Recommendation buttons */
         .ai-recommendations {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px; /* 간격 증가 */
-            padding: 10px 0;
-            justify-content: flex-start; /* 왼쪽 정렬 */
-            margin-left: 50px; /* 아바타 너비 + 간격 */
+            gap: 10px;
+            padding: 12px 0;
+            justify-content: flex-start;
+            margin-left: 56px;
         }
         .ai-rec-btn {
-            background: rgba(56,139,253,0.12); /* 배경색 강화 */
-            border: 1px solid rgba(56,139,253,0.35); /* 테두리 강화 */
+            background: rgba(56,139,253,0.08);
+            border: 1px solid rgba(56,139,253,0.25);
             color: var(--accent);
-            border-radius: 24px; /* 라운드 증가 */
-            padding: 8px 18px; /* 패딩 증가 */
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            border-radius: 24px;
+            padding: 9px 20px;
+            font-size: 14px;
             cursor: pointer;
-            transition: all 0.25s ease-in-out; /* 전환 효과 개선 */
+            transition: all 0.2s ease;
             white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         }
         .ai-rec-btn:hover {
-            background: rgba(56,139,253,0.25);
+            background: rgba(56,139,253,0.18);
             border-color: var(--accent);
-            transform: translateY(-2px); /* 마이크로 인터랙션 */
-            box-shadow: 0 4px 16px rgba(56,139,253,0.15);
+            transform: translateY(-1px);
         }
 
         /* Message collapse/expand */
         .ai-msg-collapsed {
-            max-height: 250px; /* 높이 증가 */
+            max-height: 280px;
             overflow: hidden;
             position: relative;
-            -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%); /* 마스크 범위 조정 */
+            -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
             mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
         }
         .ai-msg-expand-btn {
-            background: rgba(110, 118, 129, 0.1); /* 배경색 조정 */
+            background: rgba(110, 118, 129, 0.08);
             border: 1px solid var(--border-primary);
             color: var(--text-muted);
-            font-size: 13px; /* 폰트 사이즈 증가 */
+            font-size: 13px;
             cursor: pointer;
-            padding: 5px 14px; /* 패딩 증가 */
-            border-radius: 16px; /* 라운드 증가 */
-            margin-top: 6px;
-            margin-left: 50px; /* 아바타 너비 + 간격 */
+            padding: 6px 16px;
+            border-radius: 16px;
+            margin-top: 8px;
+            margin-left: 56px;
             display: block;
             width: fit-content;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
         .ai-msg-expand-btn:hover {
             color: var(--text-secondary);
             border-color: var(--text-muted);
-            background: rgba(110, 118, 129, 0.2);
+            background: rgba(110, 118, 129, 0.15);
         }
 
         /* History collapse */
         .ai-history-collapse {
             text-align: center;
-            padding: 10px 0; /* 패딩 증가 */
+            padding: 12px 0;
         }
         .ai-history-toggle-btn {
-            background: rgba(110, 118, 129, 0.15); /* 배경색 강화 */
+            background: rgba(110, 118, 129, 0.1);
             border: 1px solid var(--border-primary);
             color: var(--text-muted);
-            font-size: 13px; /* 폰트 사이즈 증가 */
+            font-size: 13px;
             cursor: pointer;
-            padding: 6px 18px; /* 패딩 증가 */
-            border-radius: 16px; /* 라운드 증가 */
-            transition: all 0.2s;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            padding: 7px 20px;
+            border-radius: 16px;
+            transition: all 0.2s ease;
         }
         .ai-history-toggle-btn:hover {
-            background: rgba(110, 118, 129, 0.25);
+            background: rgba(110, 118, 129, 0.2);
             color: var(--text-secondary);
         }
 
@@ -564,26 +564,26 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 24px; /* 패딩 증가 */
+            padding: 10px 28px;
             background: var(--bg-secondary);
             border-top: 1px solid var(--border-primary);
-            font-size: 14px; /* 폰트 사이즈 증가 */
+            font-size: 13px;
         }
         .ai-statusbar-left {
             display: flex;
             align-items: center;
-            gap: 10px; /* 간격 증가 */
+            gap: 10px;
         }
         .ai-status-dot {
-            width: 9px; /* 크기 증가 */
-            height: 9px; /* 크기 증가 */
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: var(--success);
             animation: ai-dot-pulse 1.5s ease-in-out infinite;
         }
         @keyframes ai-dot-pulse {
-            0%, 100% { opacity: 0.5; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.1); } /* 마이크로 인터랙션 */
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
         }
         .ai-status-text {
             color: var(--accent);
@@ -591,24 +591,24 @@
         }
         .ai-statusbar-right {
             color: var(--text-muted);
-            font-size: 13px; /* 폰트 사이즈 증가 */
+            font-size: 13px;
         }
 
         /* ===== AI Chat Input Area ===== */
         .ai-chat-input-area {
             display: flex;
             flex-direction: column;
-            gap: 6px; /* 간격 증가 */
-            padding: 12px 20px 16px; /* 패딩 증가 */
+            gap: 8px;
+            padding: 14px 24px 18px;
             background: var(--bg-primary);
             border-top: 1px solid var(--border-primary);
         }
         .ai-input-project-label {
-            font-size: 12px; /* 폰트 사이즈 증가 */
+            font-size: 12px;
             font-weight: 600;
             color: var(--accent);
-            padding: 0 6px; /* 패딩 증가 */
-            letter-spacing: 0.5px; /* 자간 조정 */
+            padding: 0 8px;
+            letter-spacing: 0.3px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -616,103 +616,98 @@
         }
         .ai-input-project-label::before {
             content: '>';
-            margin-right: 6px; /* 마진 증가 */
-            opacity: 0.7;
+            margin-right: 6px;
+            opacity: 0.6;
         }
         .ai-input-row {
             display: flex;
-            align-items: flex-end; /* 하단 정렬 */
-            gap: 10px; /* 간격 증가 */
+            align-items: flex-end;
+            gap: 12px;
             width: 100%;
         }
         .ai-input-attach-btn {
             background: none;
             border: none;
             color: var(--text-muted);
-            font-size: 22px; /* 아이콘 크기 증가 */
+            font-size: 24px;
             cursor: pointer;
-            padding: 6px; /* 패딩 증가 */
-            border-radius: 8px;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
+            padding: 8px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
             flex-shrink: 0;
         }
         .ai-input-attach-btn:hover {
             color: var(--text-secondary);
-            background: rgba(255,255,255,0.08);
-            transform: translateY(-1px); /* 마이크로 인터랙션 */
+            background: rgba(255,255,255,0.06);
         }
         #aiChatTextarea {
             flex: 1;
             background: var(--bg-secondary);
             border: 1px solid var(--border-primary);
-            border-radius: 12px; /* 라운드 증가 */
+            border-radius: 14px;
             color: var(--text-primary);
-            padding: 12px 16px; /* 패딩 증가 */
-            font-size: 15px; /* 폰트 사이즈 증가 */
+            padding: 14px 18px;
+            font-size: 16px;
             font-family: var(--font-ui);
             resize: none;
             outline: none;
-            min-height: 40px; /* 최소 높이 증가 */
-            max-height: 250px; /* 최대 높이 증가 */
+            min-height: 44px;
+            max-height: 260px;
             line-height: 1.6;
-            transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
         #aiChatTextarea:focus {
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(88,166,255,0.25); /* 포커스 효과 강화 */
+            box-shadow: 0 0 0 3px rgba(88,166,255,0.12);
         }
         #aiChatTextarea::placeholder {
             color: var(--text-muted);
+            font-size: 15px;
         }
         #aiChatTextarea:disabled {
-            opacity: 0.6;
+            opacity: 0.5;
             cursor: not-allowed;
             background: var(--bg-tertiary);
         }
         .ai-input-send-btn {
-            background: var(--success); /* 배경색 변경 */
+            background: var(--accent);
             color: #fff;
             border: none;
-            border-radius: 10px; /* 라운드 증가 */
-            padding: 10px 20px; /* 패딩 증가 */
-            font-size: 15px; /* 폰트 사이즈 증가 */
-            font-weight: 500;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
             flex-shrink: 0;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
         }
         .ai-input-send-btn:hover {
-            background: #2ea043; /* 호버 배경색 */
-            transform: translateY(-2px); /* 마이크로 인터랙션 */
-            box-shadow: 0 4px 16px rgba(63,185,80,0.25);
+            background: #4d9cf8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(88,166,255,0.25);
         }
         .ai-input-send-btn:active {
             transform: translateY(0);
             box-shadow: none;
         }
         .ai-input-stop-btn {
-            background: #4a1d1d; /* 배경색 변경 */
+            background: rgba(248,81,73,0.12);
             color: var(--danger);
-            border: 1px solid rgba(248,81,73,0.4);
-            border-radius: 10px; /* 라운드 증가 */
-            padding: 10px 20px; /* 패딩 증가 */
-            font-size: 15px; /* 폰트 사이즈 증가 */
-            font-weight: 500;
+            border: 1px solid rgba(248,81,73,0.3);
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
             flex-shrink: 0;
-            transition: all 0.2s ease-in-out; /* 전환 효과 개선 */
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
         }
         .ai-input-stop-btn:hover {
-            background: #5c2222;
+            background: rgba(248,81,73,0.2);
             border-color: var(--danger);
-            transform: translateY(-2px); /* 마이크로 인터랙션 */
-            box-shadow: 0 4px 16px rgba(248,81,73,0.25);
         }
         .ai-input-stop-btn:active {
             transform: translateY(0);
-            box-shadow: none;
         }
 
         /* AI Chat status indicator (in messages area) */
