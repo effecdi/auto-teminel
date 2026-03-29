@@ -20,6 +20,9 @@ const MAX_HISTORY = 200;
 
 const attachedImagesMap = new Map();
 
+// Per-project taskInput draft storage
+const taskInputDrafts = new Map();
+
 // Automation state
 let templates = [];
 let schedules = [];
@@ -527,6 +530,26 @@ async function selectProject(projectId) {
             ccRestoreState(getCcId());
             setTimeout(() => ccUpdateBrowserBounds(), 100);
         });
+    }
+
+    // Save/restore taskInput draft per project
+    const taskTextarea = document.getElementById('taskInput');
+    if (taskTextarea && previousProject) {
+        const draft = taskTextarea.value;
+        if (draft.trim()) {
+            taskInputDrafts.set(previousProject.id, draft);
+        } else {
+            taskInputDrafts.delete(previousProject.id);
+        }
+    }
+    if (taskTextarea) {
+        const savedDraft = taskInputDrafts.get(projectId) || '';
+        taskTextarea.value = savedDraft;
+        taskTextarea.style.height = 'auto';
+        if (savedDraft) {
+            taskTextarea.style.height = taskTextarea.scrollHeight + 'px';
+        }
+        taskTextarea.placeholder = `[${currentProject.name}] 작업 요청... (Enter to send)`;
     }
 
     // Clean up AI chat state when switching projects
@@ -3774,6 +3797,8 @@ async function sendTask() {
 
     textarea.value = '';
     textarea.style.height = 'auto';
+    // Clear draft for this project after sending
+    taskInputDrafts.delete(targetProject.id);
 
     // Save to prompt history
     promptHistory.unshift({ text, timestamp: Date.now(), project: targetProject.name });
