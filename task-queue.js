@@ -113,6 +113,12 @@ class TaskQueue {
             task.status = 'running';
             task._dispatchedAt = Date.now();
             busyProjects.add(task.projectId);
+
+            // Mark claudeReady=false BEFORE writing to prevent duplicate dispatch
+            entry.claudeReady = false;
+            // Set dispatch timestamp to prevent premature idle detection
+            entry._lastDispatchTime = Date.now();
+
             this._writeToPty(task.projectId, task.text);
             dispatched = true;
         }

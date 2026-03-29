@@ -287,7 +287,7 @@ function checkAutoApprove(projectId, rawData) {
 //  Each entry: { timer, lastOutput }
 // ===================================================================
 const idleTimers = new Map();
-const IDLE_TIMEOUT = 1500; // 1.5 seconds of no output = idle
+const IDLE_TIMEOUT = 5000; // 5 seconds of no output = idle (Claude CLI needs thinking time)
 const HEALTH_CHECK_IDLE_TIMEOUT = 8000; // 8 seconds for health check (Claude CLI has longer pauses)
 const HEALTH_CHECK_STEP_TIMEOUT = 120000; // 2 minutes max per health check step
 
@@ -738,6 +738,20 @@ function resetIdleTimer(projectId) {
     const timer = setTimeout(() => {
         // Clear auto-action suppression — CLI response is done, safe to detect errors again
         errorSuppressAutoAction.delete(projectId);
+
+        // Grace period: ignore idle if dispatch happened less than 8s ago
+        // Claude CLI needs time to start processing (thinking, loading files, etc.)
+        const entry = ptyPool.get(projectId);
+        const DISPATCH_GRACE_PERIOD = 8000; // 8 seconds
+        if (entry && entry._lastDispatchTime && (Date.now() - entry._lastDispatchTime < DISPATCH_GRACE_PERIOD)) {
+            console.log(`[Idle] Ignoring idle for ${projectId} — dispatch grace period (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 8s)`);
+            return; // Don't mark idle yet, wait for real output
+        }
+
+        // Restore claudeReady since idle means Claude CLI returned to prompt
+        if (entry && entry.alive) {
+            entry.claudeReady = true;
+        }
 
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('terminal.idle', { projectId });
