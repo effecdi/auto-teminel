@@ -72,6 +72,7 @@ let aiSpeakingNow = null;            // null | 'claude' | 'gemini'
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
 const aiChatActiveMap = new Map();   // projectId -> null | 'claude' | 'gemini' (AI chat in progress)
 const aiChatDrafts = new Map();      // projectId -> string (per-project textarea draft)
+let _aiTabRenderTimer = null;        // debounce for tab badge updates
 
 // AI Recommendation Buttons
 const AI_RECOMMENDATION_BUTTONS = [
@@ -1144,6 +1145,11 @@ function updateProjectAiChatBadge(projectId, who) {
         item.classList.remove('ai-chatting');
         const badge = item.querySelector('.ai-chat-badge');
         if (badge) badge.remove();
+    }
+    // Debounced update of AI Chat project tabs (avoid per-token re-render)
+    if (aiChatMode) {
+        clearTimeout(_aiTabRenderTimer);
+        _aiTabRenderTimer = setTimeout(() => renderAiChatProjectTabs(), 500);
     }
 }
 
@@ -2837,6 +2843,7 @@ function updateAiChatHeader() {
         nameEl.textContent = currentProject.name || 'Project';
     }
     updateAiInputProjectLabel();
+    renderAiChatProjectTabs();
 }
 
 /** Update the project label shown in the AI Chat input area */
@@ -2852,6 +2859,49 @@ function updateAiInputProjectLabel() {
     if (textarea && currentProject) {
         textarea.placeholder = `${currentProject.name}에 메시지 입력...`;
     }
+}
+
+/** Render project tabs in AI Chat — each project gets its own tab */
+function renderAiChatProjectTabs() {
+    const container = document.getElementById('aiChatProjectTabs');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!projects || projects.length === 0) return;
+
+    for (const proj of projects) {
+        const tab = document.createElement('button');
+        tab.className = 'ai-chat-project-tab';
+        if (currentProject && proj.id === currentProject.id) {
+            tab.classList.add('active');
+        }
+
+        // Badge: active AI / draft / messages
+        const hasActive = aiChatActiveMap.get(proj.id);
+        const hasDraft = aiChatDrafts.has(proj.id);
+        const hasMessages = aiChatMessages.has(proj.id) && aiChatMessages.get(proj.id).length > 0;
+
+        let badgeHTML = '';
+        if (hasActive) {
+            badgeHTML = '<span class="ai-chat-tab-badge has-active"></span>';
+        } else if (hasDraft) {
+            badgeHTML = '<span class="ai-chat-tab-badge has-draft"></span>';
+        } else if (hasMessages) {
+            badgeHTML = '<span class="ai-chat-tab-badge"></span>';
+        }
+
+        tab.innerHTML = `${badgeHTML}<span>${proj.name}</span>`;
+        tab.title = proj.path || proj.name;
+        tab.addEventListener('click', () => switchAiChatProject(proj.id));
+        container.appendChild(tab);
+    }
+}
+
+/** Switch AI Chat to a specific project (via tab click) */
+function switchAiChatProject(projectId) {
+    if (currentProject && currentProject.id === projectId) return;
+    // This triggers selectProject which handles draft save/restore, re-render, etc.
+    selectProject(projectId);
 }
 
 /** Set AI mode via tab buttons */
@@ -3539,6 +3589,8 @@ ipcRenderer.on('ai.debateComplete', (event, { projectId }) => {
             }
         }
     }
+    // Refresh project tabs (badge update)
+    if (aiChatMode) renderAiChatProjectTabs();
 });
 
 ipcRenderer.on('ai.executionQueued', (event, { projectId, mode }) => {

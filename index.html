@@ -26,6 +26,75 @@
             background: #0d1117;
         }
 
+        /* ===== AI Chat Project Tabs ===== */
+        .ai-chat-project-tabs {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 6px 12px 0;
+            background: #0d1117;
+            overflow-x: auto;
+            flex-shrink: 0;
+            scrollbar-width: none;
+        }
+        .ai-chat-project-tabs::-webkit-scrollbar { display: none; }
+        .ai-chat-project-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            color: #6e7681;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+            position: relative;
+        }
+        .ai-chat-project-tab:hover {
+            color: #c9d1d9;
+            background: rgba(255,255,255,0.04);
+        }
+        .ai-chat-project-tab.active {
+            color: #e6edf3;
+            background: #161b22;
+            border-color: #30363d;
+            font-weight: 600;
+        }
+        .ai-chat-project-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #58a6ff;
+            border-radius: 2px 2px 0 0;
+        }
+        .ai-chat-tab-badge {
+            display: inline-block;
+            min-width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #238636;
+            flex-shrink: 0;
+        }
+        .ai-chat-tab-badge.has-draft {
+            background: #d29922;
+        }
+        .ai-chat-tab-badge.has-active {
+            background: #58a6ff;
+            animation: ai-tab-pulse 1.5s infinite;
+        }
+        @keyframes ai-tab-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
         /* ===== AI Chat Header ===== */
         .ai-chat-header {
             display: flex;
@@ -1012,6 +1081,8 @@
 
             <!-- AI Chat Container (toggled with terminal) -->
             <div id="ai-chat-container" style="display:none;">
+                <!-- Project Tabs Bar -->
+                <div class="ai-chat-project-tabs" id="aiChatProjectTabs"></div>
                 <!-- Header (Simplified) -->
                 <div class="ai-chat-header">
                     <div class="ai-chat-header-left">
