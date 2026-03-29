@@ -71,6 +71,7 @@ const aiBgStreamBuffer = new Map();
 let aiSpeakingNow = null;            // null | 'claude' | 'gemini'
 let aiChatStarted = new Map();       // projectId -> boolean (has conversation started)
 const aiChatActiveMap = new Map();   // projectId -> null | 'claude' | 'gemini' (AI chat in progress)
+const aiChatDrafts = new Map();      // projectId -> string (per-project textarea draft)
 
 // AI Recommendation Buttons
 const AI_RECOMMENDATION_BUTTONS = [
@@ -532,12 +533,28 @@ async function selectProject(projectId) {
         // Finalize any in-progress streaming for previous project
         finalizeStreamMessage(aiChatStreaming.text);
     }
-    // Clear textarea to prevent accidental sends to wrong project
+    // Save current project's draft before switching
     const aiTextarea = document.getElementById('aiChatTextarea');
-    if (aiTextarea) {
-        aiTextarea.value = '';
-        aiTextarea.style.height = 'auto';
+    if (aiTextarea && previousProject) {
+        const draft = aiTextarea.value.trim();
+        if (draft) {
+            aiChatDrafts.set(previousProject.id, aiTextarea.value);
+        } else {
+            aiChatDrafts.delete(previousProject.id);
+        }
     }
+    // Restore new project's draft (or clear)
+    if (aiTextarea) {
+        const savedDraft = aiChatDrafts.get(projectId) || '';
+        aiTextarea.value = savedDraft;
+        aiTextarea.style.height = 'auto';
+        if (savedDraft) {
+            // Auto-expand textarea for restored draft
+            aiTextarea.style.height = aiTextarea.scrollHeight + 'px';
+        }
+    }
+    // Update input area project label
+    updateAiInputProjectLabel();
     // Re-render AI chat messages for new project
     if (aiChatMode) {
         hideAiStatusBar();
@@ -2625,6 +2642,9 @@ async function sendAiMessage() {
     textarea.value = '';
     textarea.style.height = 'auto';
 
+    // Clear draft for this project (message sent)
+    if (currentProject) aiChatDrafts.delete(currentProject.id);
+
     // Remove recommendation buttons when sending new message
     removeRecommendationButtons();
 
@@ -2815,6 +2835,22 @@ function updateAiChatHeader() {
     const nameEl = document.getElementById('aiChatProjectName');
     if (nameEl && currentProject) {
         nameEl.textContent = currentProject.name || 'Project';
+    }
+    updateAiInputProjectLabel();
+}
+
+/** Update the project label shown in the AI Chat input area */
+function updateAiInputProjectLabel() {
+    const label = document.getElementById('aiInputProjectLabel');
+    const textarea = document.getElementById('aiChatTextarea');
+    if (label && currentProject) {
+        label.textContent = currentProject.name || 'Project';
+        label.style.display = '';
+    } else if (label) {
+        label.style.display = 'none';
+    }
+    if (textarea && currentProject) {
+        textarea.placeholder = `${currentProject.name}에 메시지 입력...`;
     }
 }
 
