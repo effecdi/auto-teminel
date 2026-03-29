@@ -986,6 +986,18 @@ body {
 }
 .task-send-btn:hover { filter: brightness(1.15); box-shadow: 0 0 12px rgba(0, 230, 118, 0.3); }
 .task-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.task-send-btn.task-stop-mode {
+    background: var(--accent-red, #ff5252);
+    animation: stopPulse 1.5s ease-in-out infinite;
+}
+.task-send-btn.task-stop-mode:hover {
+    filter: brightness(1.2);
+    box-shadow: 0 0 12px rgba(255, 82, 82, 0.4);
+}
+@keyframes stopPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
 
 /* Task list items */
 .task-item {

@@ -605,6 +605,7 @@ async function selectProject(projectId) {
     const entry = await getOrCreateTerminal(currentProject);
     showTerminal(projectId);
     renderImagePreviewBar();
+    updateSendStopButton();
 
     requestAnimationFrame(() => {
         fitEntry(entry);
@@ -3725,6 +3726,14 @@ function setupTaskInputShortcut() {
                 sendTask();
             }
         }
+        // Escape key → interrupt running task
+        if (e.key === 'Escape' && !aiChatMode) {
+            const hasRunning = currentProject && taskQueue.some(t => t.status === 'running' && t.projectId === currentProject.id);
+            if (hasRunning) {
+                e.preventDefault();
+                interruptCurrentTask();
+            }
+        }
     });
 
     textarea.addEventListener('input', (e) => {
@@ -3849,6 +3858,50 @@ function toggleQueuePause() {
         ipcRenderer.invoke('queue.pause').then(() => {
             showToast('Queue paused', 'info');
         });
+    }
+}
+
+/** Interrupt the currently running task for the active project. */
+async function interruptCurrentTask() {
+    if (!currentProject) return;
+
+    const runningTask = taskQueue.find(t => t.status === 'running' && t.projectId === currentProject.id);
+    if (!runningTask) {
+        showToast('No running task to stop', 'info');
+        return;
+    }
+
+    const result = await ipcRenderer.invoke('terminal.interrupt', currentProject.id);
+    if (result.success) {
+        showToast('Task interrupted — Claude CLI will return to prompt', 'info');
+    } else {
+        showToast('Failed to interrupt: ' + (result.error || 'unknown'), 'error');
+    }
+}
+
+/** Update Send/Stop button state based on queue. */
+function updateSendStopButton() {
+    const sendBtn = document.getElementById('taskSendBtn');
+    if (!sendBtn) return;
+
+    // AI chat mode uses its own send logic, don't override
+    if (aiChatMode) {
+        sendBtn.textContent = 'Send';
+        sendBtn.classList.remove('task-stop-mode');
+        sendBtn.onclick = handleSend;
+        return;
+    }
+
+    const hasRunning = currentProject && taskQueue.some(t => t.status === 'running' && t.projectId === currentProject.id);
+
+    if (hasRunning) {
+        sendBtn.textContent = 'Stop';
+        sendBtn.classList.add('task-stop-mode');
+        sendBtn.onclick = interruptCurrentTask;
+    } else {
+        sendBtn.textContent = 'Send';
+        sendBtn.classList.remove('task-stop-mode');
+        sendBtn.onclick = handleSend;
     }
 }
 
@@ -4007,6 +4060,7 @@ ipcRenderer.on('queue.updated', (event, state) => {
 
     renderTaskList();
     updateQueueProgress();
+    updateSendStopButton();
     renderDashboard(); // 큐 상태 변경 시 대시보드도 갱신
 });
 

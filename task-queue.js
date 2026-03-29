@@ -129,6 +129,21 @@ class TaskQueue {
         }
     }
 
+    /** Interrupt running task(s) for a project. Returns the interrupted task text (for re-queue). */
+    interrupt(projectId) {
+        let interruptedText = null;
+        for (const task of this._tasks) {
+            if (task.status === 'running' && task.projectId === projectId) {
+                interruptedText = task.text;
+                task.status = 'done';
+                task._interrupted = true;
+                safelog(`[TaskQueue] Interrupted task ${task.id} for project ${task.project}`);
+            }
+        }
+        this._notify();
+        return interruptedText;
+    }
+
     /** Remove a pending task. Returns true if removed. */
     remove(taskId) {
         const idx = this._tasks.findIndex(t => t.id === taskId);

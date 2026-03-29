@@ -1867,6 +1867,40 @@ ipcMain.handle('terminal.killAll', () => {
 });
 
 // ===================================================================
+//  IPC: terminal.interrupt — send Ctrl+C to stop running task gracefully
+// ===================================================================
+
+ipcMain.handle('terminal.interrupt', (event, projectId) => {
+    const entry = ptyPool.get(projectId);
+    if (!entry || !entry.alive || !entry.process) {
+        return { success: false, error: 'PTY not running' };
+    }
+
+    // Interrupt running task in queue
+    const interruptedText = taskQueue.interrupt(projectId);
+
+    // Send Escape first (exits any sub-prompt), then Ctrl+C to interrupt
+    try {
+        entry.process.write('\x1b');  // Escape
+        setTimeout(() => {
+            try {
+                entry.process.write('\x03');  // Ctrl+C
+            } catch (e) {
+                console.error('[Interrupt] Ctrl+C failed:', e.message);
+            }
+        }, 100);
+    } catch (e) {
+        console.error('[Interrupt] Escape failed:', e.message);
+    }
+
+    // Reset claudeReady — will be re-detected when Claude CLI shows prompt again
+    entry.claudeReady = false;
+
+    console.log(`[Interrupt] Sent Ctrl+C to project ${projectId}, interrupted task: ${interruptedText ? interruptedText.substring(0, 60) : 'none'}`);
+    return { success: true, interruptedText };
+});
+
+// ===================================================================
 //  IPC: automation.sendPrompt — send text to a project's PTY
 // ===================================================================
 
