@@ -51,7 +51,8 @@
 
         #ai-chat-container {
             display: none;
-            flex-direction: column;
+            grid-template-rows: auto auto 1fr auto auto;
+            grid-template-columns: 1fr;
             flex: 1;
             min-height: 0;
             overflow: hidden;
@@ -59,6 +60,7 @@
             color: var(--text-primary);
             font-family: var(--font-ui);
             font-size: 16px;
+            position: relative;
         }
 
         /* ===== AI Chat Project Tabs ===== */
@@ -72,6 +74,7 @@
             flex-shrink: 0;
             scrollbar-width: none;
             border-bottom: 1px solid var(--border-primary);
+            grid-row: 1;
         }
         .ai-chat-project-tabs::-webkit-scrollbar { display: none; }
         .ai-chat-project-tab {
@@ -138,6 +141,7 @@
             border-bottom: 1px solid var(--border-primary);
             gap: 16px;
             min-height: 60px;
+            grid-row: 2;
         }
         .ai-chat-header-left {
             display: flex;
@@ -257,6 +261,16 @@
         }
         .ai-chat-mode-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88,166,255,0.15); }
 
+        /* ===== AI Chat Body (scrollable messages + inline speaking) ===== */
+        .ai-chat-body {
+            grid-row: 3;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
         /* ===== AI Chat Messages ===== */
         .ai-chat-messages {
             flex: 1;
@@ -266,6 +280,7 @@
             display: flex;
             flex-direction: column;
             gap: 32px;
+            position: relative;
         }
         .ai-chat-messages::-webkit-scrollbar { width: 7px; }
         .ai-chat-messages::-webkit-scrollbar-track { background: transparent; }
@@ -273,11 +288,15 @@
         .ai-chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
         .ai-chat-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            flex: 1;
+            width: 80%;
             color: var(--text-muted);
             text-align: center;
         }
@@ -299,9 +318,10 @@
             background: linear-gradient(135deg, #1a3f56, #1c3350);
             color: var(--text-primary);
             padding: 18px 26px;
-            border-radius: var(--msg-radius) var(--msg-radius) 8px var(--msg-radius);
+            border-radius: var(--msg-radius) var(--msg-radius) 4px var(--msg-radius);
             box-shadow: var(--bubble-shadow);
             border: 1px solid rgba(88,166,255,0.18);
+            border-right: 4px solid rgba(88,166,255,0.5);
             font-size: 16.5px;
         }
         .ai-msg-gemini,
@@ -380,6 +400,7 @@
             gap: 9px;
             padding: 10px 0;
             margin-left: 60px;
+            min-height: 44px;
         }
         .ai-typing-dots-bubble .dot {
             width: 11px;
@@ -419,10 +440,12 @@
         .ai-msg-gemini .ai-msg-bubble {
             border-color: rgba(179,146,240,0.22);
             border-left: 4px solid rgba(179,146,240,0.5);
+            border-radius: 4px 22px 22px 22px;
         }
         .ai-msg-claude .ai-msg-bubble {
             border-color: rgba(105,240,174,0.22);
             border-left: 4px solid rgba(105,240,174,0.45);
+            border-radius: 4px 22px 22px 22px;
         }
 
         .ai-msg-error {
@@ -579,6 +602,7 @@
             background: var(--bg-secondary);
             border-top: 1px solid var(--border-primary);
             font-size: 14px;
+            grid-row: 4;
         }
         .ai-statusbar-left {
             display: flex;
@@ -613,6 +637,7 @@
             padding: 16px 28px 20px;
             background: var(--bg-primary);
             border-top: 1px solid var(--border-primary);
+            grid-row: 5;
         }
         .ai-input-project-label {
             font-size: 13px;
@@ -815,8 +840,7 @@
             30% { opacity: 1; transform: translateY(-6px); }
         }
 
-        /* Position the messages container as relative for overlay */
-        #ai-chat-container { position: relative; }
+        /* Position the messages container as relative for overlay — handled in main #ai-chat-container rule */
 
         /* ===== AI Speaking Inline Indicator (replaces center overlay) ===== */
         .ai-speaking-inline {
@@ -829,6 +853,11 @@
             font-size: 15px;
             animation: ai-inline-fade-in 0.3s ease-out;
             color: var(--text-secondary);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            width: 100%;
+            flex-shrink: 0;
         }
         @keyframes ai-inline-fade-in {
             from { opacity: 0; transform: translateY(-6px); }
@@ -924,6 +953,10 @@
             font-family: var(--font-mono);
             border-top-left-radius: 10px;
             border-top-right-radius: 10px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
         }
         .code-copy-btn {
             position: absolute;
@@ -1020,7 +1053,9 @@
             color: var(--text-muted);
             margin-left: 10px;
             opacity: 0.8;
+            flex-shrink: 0;
         }
+        .ai-msg-user .ai-msg-time { margin-right: 10px; margin-left: 0; }
 
         /* ===== Message Copy Button ===== */
         .ai-msg-copy-btn {
@@ -1038,7 +1073,8 @@
             line-height: 1;
         }
         .ai-msg:hover .ai-msg-copy-btn,
-        .ai-msg-header:hover .ai-msg-copy-btn {
+        .ai-msg-header:hover .ai-msg-copy-btn,
+        .ai-msg-content-wrapper:hover .ai-msg-copy-btn {
             opacity: 1;
             background: rgba(110, 118, 129, 0.2);
         }
@@ -1236,23 +1272,26 @@
                     </div>
                 </div>
 
-                <!-- Inline Speaking Indicator (replaces center overlay) -->
-                <div class="ai-speaking-inline" id="aiSpeakingOverlay" style="display:none;">
-                    <span class="ai-speaking-inline-dot" id="aiSpeakingDot"></span>
-                    <span class="ai-speaking-inline-name" id="aiSpeakingName">Claude</span>
-                    <span class="ai-speaking-inline-text">가 응답하는 중</span>
-                    <span class="ai-speaking-inline-dots"><span>.</span><span>.</span><span>.</span></span>
-                </div>
+                <!-- AI Chat Body (Scrollable Messages + Inline Speaking) -->
+                <div class="ai-chat-body">
+                    <!-- Inline Speaking Indicator (replaces center overlay) -->
+                    <div class="ai-speaking-inline" id="aiSpeakingOverlay" style="display:none;">
+                        <span class="ai-speaking-inline-dot" id="aiSpeakingDot"></span>
+                        <span class="ai-speaking-inline-name" id="aiSpeakingName">Claude</span>
+                        <span class="ai-speaking-inline-text">가 응답하는 중</span>
+                        <span class="ai-speaking-inline-dots"><span>.</span><span>.</span><span>.</span></span>
+                    </div>
 
-                <!-- Messages -->
-                <div class="ai-chat-messages" id="aiChatMessages">
-                    <div class="ai-chat-placeholder">
-                        <div class="placeholder-icon-ai">
-                            <span class="placeholder-ai-c">C</span><span class="placeholder-ai-plus">+</span><span class="placeholder-ai-g">G</span>
+                    <!-- Messages -->
+                    <div class="ai-chat-messages" id="aiChatMessages">
+                        <div class="ai-chat-placeholder">
+                            <div class="placeholder-icon-ai">
+                                <span class="placeholder-ai-c">C</span><span class="placeholder-ai-plus">+</span><span class="placeholder-ai-g">G</span>
+                            </div>
+                            <h2>AI Chat</h2>
+                            <p>Claude + Gemini 듀얼 AI와 대화하세요</p>
+                            <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
                         </div>
-                        <h2>AI Chat</h2>
-                        <p>Claude + Gemini 듀얼 AI와 대화하세요</p>
-                        <div class="placeholder-hint">아래에 메시지를 입력하세요</div>
                     </div>
                 </div>
 

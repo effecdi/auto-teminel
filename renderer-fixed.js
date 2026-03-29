@@ -2577,7 +2577,7 @@ function toggleAiChat() {
         // Show AI Chat, hide Terminal + header
         if (terminalContainer) terminalContainer.style.display = 'none';
         if (timelinePanel) timelinePanel.style.display = 'none';
-        if (aiChatContainer) aiChatContainer.style.display = 'flex';
+        if (aiChatContainer) aiChatContainer.style.display = 'grid';
         if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
         if (toolbarSep) toolbarSep.style.display = 'none';
         if (aiChatBtn) aiChatBtn.classList.add('active');
