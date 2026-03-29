@@ -16,6 +16,7 @@ class ComputerControl {
         this._loopCount = 0;
         this._maxLoops = 30;
         this._conversationHistory = [];
+        this._maxHistoryPairs = 6; // Keep last 6 user/model pairs (trim older screenshots)
         this._viewBounds = { x: 0, y: 0, width: 1024, height: 768 };
 
         // Callbacks
@@ -308,6 +309,29 @@ class ComputerControl {
     }
 
     // ===================================================================
+    //  History Trimming — keep only recent pairs to save tokens
+    // ===================================================================
+
+    _trimHistory() {
+        const h = this._conversationHistory;
+        if (h.length <= this._maxHistoryPairs * 2 + 1) return; // +1 for initial user msg
+
+        // Keep first user message (task) + last N pairs (user+model)
+        const firstMsg = h[0];
+        // Strip inlineData from the first message to save tokens (task text only)
+        const firstMsgLite = {
+            role: firstMsg.role,
+            parts: firstMsg.parts.map(p => p.text ? p : { text: '[initial screenshot — trimmed]' })
+        };
+
+        const keepCount = this._maxHistoryPairs * 2; // pairs of user+model
+        const recentHistory = h.slice(-keepCount);
+
+        this._conversationHistory = [firstMsgLite, ...recentHistory];
+        console.log(`[CC] History trimmed: ${h.length} → ${this._conversationHistory.length} entries`);
+    }
+
+    // ===================================================================
     //  Gemini API Call
     // ===================================================================
 
@@ -413,6 +437,9 @@ class ComputerControl {
                 this._loopCount++;
                 this._log('loop', `--- Loop ${this._loopCount}/${this._maxLoops} ---`);
                 this._emitUpdate();
+
+                // Trim old history to save tokens
+                this._trimHistory();
 
                 // Call Gemini API
                 const response = await this.callAPI(apiKey, model, this._conversationHistory);

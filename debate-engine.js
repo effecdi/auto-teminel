@@ -40,8 +40,20 @@ const SOLO_SUFFIX = '당신은 단독으로 응답합니다. 디자인과 개발
 // ===================================================================
 
 class ConversationHistory {
-    constructor() { this.messages = []; }
-    add(role, content) { this.messages.push({ role, content }); }
+    constructor() {
+        this.messages = [];
+        this._maxMessages = 20; // Keep last 20 messages to prevent unbounded growth
+    }
+    add(role, content) {
+        this.messages.push({ role, content });
+        // Trim if over limit: keep first user message + recent messages
+        if (this.messages.length > this._maxMessages) {
+            const first = this.messages[0]; // original task
+            const recent = this.messages.slice(-(this._maxMessages - 1));
+            this.messages = [first, ...recent];
+            console.log(`[ConversationHistory] Trimmed to ${this.messages.length} messages`);
+        }
+    }
     getAll() { return [...this.messages]; }
     clear() { this.messages = []; }
     get length() { return this.messages.length; }

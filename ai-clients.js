@@ -253,14 +253,26 @@ function streamClaude(history, callbacks, options) {
 // ===================================================================
 
 let genAI = null;
+let _cachedGeminiModel = null;
+let _cachedGeminiModelKey = ''; // hash of apiKey + systemPrompt + hasTools
 
 function getGeminiClient(apiKey) {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     if (!genAI || genAI._apiKey !== apiKey) {
         genAI = new GoogleGenerativeAI(apiKey);
         genAI._apiKey = apiKey; // track for key changes
+        _cachedGeminiModel = null; // invalidate model cache on key change
     }
     return genAI;
+}
+
+function getOrCreateGeminiModel(client, modelConfig, cacheKey) {
+    if (_cachedGeminiModel && _cachedGeminiModelKey === cacheKey) {
+        return _cachedGeminiModel;
+    }
+    _cachedGeminiModel = client.getGenerativeModel(modelConfig, { timeout: 120000 });
+    _cachedGeminiModelKey = cacheKey;
+    return _cachedGeminiModel;
 }
 
 function toGeminiHistory(messages) {
@@ -453,9 +465,9 @@ function streamGemini(apiKey, history, callbacks, options) {
                 modelConfig.systemInstruction = systemPrompt;
             }
 
-            const model = client.getGenerativeModel(modelConfig, {
-                timeout: 120000 // 120s request timeout
-            });
+            // Cache model instance to avoid rebuilding system prompt on every call
+            const cacheKey = `${apiKey}:${systemPrompt.length}:${!!projectPath}`;
+            const model = getOrCreateGeminiModel(client, modelConfig, cacheKey);
 
             const recent = history.length > 6 ? history.slice(-6) : history;
             const geminiHistory = toGeminiHistory(recent);
