@@ -866,8 +866,8 @@ app.whenReady().then(() => {
     // ===================================================================
     //  Auto-Updater (electron-updater)
     // ===================================================================
-    autoUpdater.autoDownload = true;          // 자동 다운로드
-    autoUpdater.autoInstallOnAppQuit = true;   // 앱 종료 시 자동 설치
+    autoUpdater.autoDownload = false;          // 사용자 확인 후 다운로드
+    autoUpdater.autoInstallOnAppQuit = false;   // 사용자 확인 후 설치
     // Skip code signing verification — app is unsigned
     if (process.platform === 'darwin') {
         autoUpdater.verifyUpdateCodeSignature = () => Promise.resolve(null);
@@ -943,12 +943,9 @@ app.whenReady().then(() => {
             });
         }
         // Fallback: if progress hits 100% but update-downloaded never fires
+        // (자동 설치 비활성화 — renderer에서 수동 설치 유도)
         if (progress.percent >= 99.9 && !_updateReadyToInstall) {
-            setTimeout(() => {
-                if (!_updateReadyToInstall) {
-                    scheduleAutoInstall('progress 100% fallback');
-                }
-            }, 3000);
+            _updateReadyToInstall = true;
         }
     });
 
@@ -959,8 +956,8 @@ app.whenReady().then(() => {
                 version: info.version
             });
         }
-        // Auto-restart to install
-        scheduleAutoInstall('update-downloaded');
+        // 자동 재시작 비활성화 — renderer에서 사용자가 직접 설치
+        _updateReadyToInstall = true;
     });
 
     autoUpdater.on('error', (err) => {

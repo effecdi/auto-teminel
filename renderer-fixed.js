@@ -4038,6 +4038,7 @@ ipcRenderer.on('schedule.executed', (event, { scheduleName, projectId, timestamp
 // ===================================================================
 
 let updateState = 'idle'; // idle | available | downloading | downloaded
+let _pendingUpdateVersion = null; // "다음에하기" 선택 시 저장
 
 function showUpdateBanner(releaseNotes) {
     const banner = document.getElementById('update-banner');
@@ -4072,6 +4073,46 @@ function showUpdateBanner(releaseNotes) {
 function dismissUpdateBanner() {
     const banner = document.getElementById('update-banner');
     if (banner) banner.style.display = 'none';
+    // "다음에하기" — 사이드바에 업데이트 버튼 표시
+    if (_pendingUpdateVersion) {
+        showSidebarUpdateButton(_pendingUpdateVersion);
+    }
+}
+
+function showSidebarUpdateButton(version) {
+    const footer = document.getElementById('app-version-footer');
+    if (!footer) return;
+    // 이미 있으면 제거하지 않고 업데이트
+    let btn = document.getElementById('sidebar-update-btn');
+    if (!btn) {
+        btn = document.createElement('div');
+        btn.id = 'sidebar-update-btn';
+        btn.style.cssText = 'margin-top:6px;padding:6px 10px;background:linear-gradient(135deg,#238636,#2ea043);color:#fff;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;text-align:center;transition:filter 0.2s;';
+        btn.onmouseenter = () => { btn.style.filter = 'brightness(1.15)'; };
+        btn.onmouseleave = () => { btn.style.filter = ''; };
+        btn.onclick = () => {
+            // 업데이트 시작
+            updateState = 'downloading';
+            ipcRenderer.invoke('updater.download');
+            btn.textContent = '다운로드 중...';
+            btn.style.opacity = '0.7';
+            btn.style.cursor = 'default';
+            btn.onclick = null;
+            // 배너도 표시
+            const progressBar = document.getElementById('update-progress-bar');
+            if (progressBar) progressBar.style.display = '';
+            const actionBtn = document.getElementById('update-action-btn');
+            if (actionBtn) { actionBtn.textContent = '다운로드 중...'; actionBtn.disabled = true; actionBtn.style.opacity = '0.7'; }
+            showUpdateBanner();
+        };
+        footer.appendChild(btn);
+    }
+    btn.textContent = `v${version} 업데이트`;
+}
+
+function hideSidebarUpdateButton() {
+    const btn = document.getElementById('sidebar-update-btn');
+    if (btn) btn.remove();
 }
 
 function onUpdateAction() {
@@ -4104,18 +4145,20 @@ async function checkForUpdate() {
 
 ipcRenderer.on('updater.available', (event, { version, releaseNotes }) => {
     updateState = 'available';
+    _pendingUpdateVersion = version;
     const badge = document.getElementById('update-version-badge');
     if (badge) badge.textContent = `v${version}`;
+    // 버튼: "업데이트" (활성 상태) — 사용자가 직접 클릭
     const actionBtn = document.getElementById('update-action-btn');
-    if (actionBtn) { actionBtn.textContent = '다운로드 중...'; actionBtn.disabled = true; actionBtn.style.opacity = '0.7'; }
+    if (actionBtn) { actionBtn.textContent = '업데이트'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    // 진행바는 숨김 (아직 다운로드 시작 안 함)
     const progressBar = document.getElementById('update-progress-bar');
-    if (progressBar) progressBar.style.display = '';
+    if (progressBar) progressBar.style.display = 'none';
     showUpdateBanner(releaseNotes);
     // Update sidebar version status
     const statusEl = document.getElementById('app-version-status');
-    if (statusEl) { statusEl.textContent = '● 다운로드중'; statusEl.style.color = '#f0883e'; statusEl.style.display = ''; }
-    // Toast notification so user definitely sees it
-    showToast(`새 버전 v${version} 발견! 자동 다운로드 중...`, 'info');
+    if (statusEl) { statusEl.textContent = '● 업데이트 가능'; statusEl.style.color = '#f0883e'; statusEl.style.display = ''; }
+    showToast(`새 버전 v${version} 이 있습니다.`, 'info');
 });
 
 ipcRenderer.on('updater.not-available', () => {
@@ -4135,7 +4178,9 @@ function _forceDownloadedState() {
     if (progressBar) progressBar.style.display = 'none';
     const statusEl = document.getElementById('app-version-status');
     if (statusEl) { statusEl.textContent = '● 재시작 필요'; statusEl.style.color = '#58a6ff'; statusEl.style.display = ''; }
-    showToast('다운로드 완료! 재시작하면 자동 설치됩니다.', 'success');
+    // 사이드바 업데이트 버튼 제거 (배너에서 직접 설치 가능)
+    hideSidebarUpdateButton();
+    showToast('다운로드 완료! 재시작하면 설치됩니다.', 'success');
 }
 
 ipcRenderer.on('updater.progress', (event, { percent, transferred, total }) => {
@@ -4186,7 +4231,7 @@ ipcRenderer.on('updater.error', (event, { message }) => {
 });
 
 ipcRenderer.on('updater.autoRestart', (event, { seconds }) => {
-    showToast(`업데이트 설치를 위해 ${seconds}초 후 자동 재시작됩니다...`, 'info');
+    // 자동 재시작 비활성화됨 — 무시 (사용자가 직접 설치)
 });
 
 ipcRenderer.on('updater.installFailed', (event, { message }) => {
