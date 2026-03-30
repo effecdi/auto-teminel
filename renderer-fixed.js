@@ -3960,6 +3960,15 @@ function updateQueueProgress() {
     if (fill) fill.style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
 }
 
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function _buildTaskItem(task) {
     const item = document.createElement('div');
     item.className = `task-item task-${task.status}`;
