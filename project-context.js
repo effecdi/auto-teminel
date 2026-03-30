@@ -177,7 +177,7 @@ function readReadme(projectPath) {
         const filepath = path.join(projectPath, name);
         if (fs.existsSync(filepath)) {
             const content = fs.readFileSync(filepath, 'utf-8');
-            return content.split('\n').slice(0, 50).join('\n');
+            return content.split('\n').slice(0, 20).join('\n'); // 50→20줄: 토큰 절약
         }
     }
     return null;
@@ -215,7 +215,7 @@ function buildProjectContext(projectPath, projectName, operationType, opts) {
     if (tree.length > 0) {
         parts.push('## 프로젝트 구조');
         parts.push('```');
-        parts.push(...tree.slice(0, 80));
+        parts.push(...tree.slice(0, 50)); // 80→50: 토큰 절약
         parts.push('```');
         parts.push('');
     }

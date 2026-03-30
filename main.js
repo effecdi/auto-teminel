@@ -2888,7 +2888,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
 
     const geminiApiKey = store.get('geminiApiKey', '');
     const maxRounds = store.get('aiMaxRounds', 1);
-    const includeSource = store.get('aiIncludeSource', true);
+    const includeSource = store.get('aiIncludeSource', false); // 기본 false — 소스 포함 시 300KB→~100K 토큰 낭비
 
     // projectPath가 없으면 store에서 프로젝트 경로 자동 탐색
     let effectivePath = projectPath;
@@ -2948,7 +2948,7 @@ ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, 
 
     // Reuse existing project context from engine (built at ai.start)
     // Only rebuild if operationType changed or context doesn't exist
-    const includeSource = store.get('aiIncludeSource', true);
+    const includeSource = store.get('aiIncludeSource', false); // 기본 false — 토큰 절약
     let effectivePath = projectPath;
     let effectiveName = projectName || projectId;
     if (!effectivePath) {

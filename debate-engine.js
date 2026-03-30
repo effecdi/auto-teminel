@@ -42,10 +42,19 @@ const SOLO_SUFFIX = '당신은 단독으로 응답합니다. 디자인과 개발
 class ConversationHistory {
     constructor() {
         this.messages = [];
-        this._maxMessages = 20; // Keep last 20 messages to prevent unbounded growth
+        this._maxMessages = 10; // 20→10: 토큰 절약 (코드가 포함된 긴 응답이 누적되면 토큰 폭증)
     }
     add(role, content) {
-        this.messages.push({ role, content });
+        // 긴 메시지 잘라내기 — 코드가 포함된 AI 응답이 5000자 초과 시 앞뒤만 보존
+        const MAX_CONTENT_LEN = 5000;
+        let trimmedContent = content;
+        if (typeof content === 'string' && content.length > MAX_CONTENT_LEN) {
+            const head = content.substring(0, 2000);
+            const tail = content.substring(content.length - 2000);
+            trimmedContent = `${head}\n\n[... 중간 ${content.length - 4000}자 생략 (토큰 절약) ...]\n\n${tail}`;
+            console.log(`[ConversationHistory] Truncated ${role} message: ${content.length} → ${trimmedContent.length} chars`);
+        }
+        this.messages.push({ role, content: trimmedContent });
         // Trim if over limit: keep first user message + recent messages
         if (this.messages.length > this._maxMessages) {
             const first = this.messages[0]; // original task
@@ -345,16 +354,17 @@ class DebateEngine {
                     // === Dual 모드: Claude분석 → Gemini응답 → Claude구현 ===
 
                     // Step 1: Claude — 프로젝트 파일 읽고 분석
+                    // Claude는 CLI로 파일을 직접 읽으므로 projectContext 불필요 (토큰 절약)
                     console.log(`[DebateEngine] Step 1/3: Claude 분석 시작 (Round ${round}/${maxRounds})`);
                     callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
                         suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 결과를 상세하게 공유하세요. Gemini(디자이너)가 이 분석을 보고 응답합니다.',
-                        projectContext, projectPath: this.projectPath,
+                        projectContext: null, projectPath: this.projectPath,
                     });
                     console.log(`[DebateEngine] Step 1/3: Claude 분석 완료`);
                     if (!this.running) break;
 
-                    // Step 2: Gemini — Claude의 분석을 보고 응답
+                    // Step 2: Gemini — Claude의 분석을 보고 응답 (Gemini만 projectContext 필요)
                     if (!this.geminiApiKey) {
                         callbacks.onError(new Error('Gemini API Key가 설정되지 않았습니다.'), 'gemini');
                         break;
@@ -370,11 +380,12 @@ class DebateEngine {
                     if (!this.running) break;
 
                     // Step 3: Claude — Gemini 결과를 받아 구현
+                    // Claude는 파일을 직접 읽으므로 projectContext 불필요 (토큰 절약)
                     console.log(`[DebateEngine] Step 3/3: Claude 구현 시작`);
                     callbacks.onStatusChange(`💬 Claude 구현중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
                         suffix: modeConfig.claudeSuffix,
-                        projectContext, projectPath: this.projectPath,
+                        projectContext: null, projectPath: this.projectPath,
                     });
                     console.log(`[DebateEngine] Step 3/3: Claude 구현 완료`);
                     if (!this.running) break;
@@ -387,12 +398,12 @@ class DebateEngine {
                         break;
                     }
 
-                    // Step 1: Claude 사전 분석
+                    // Step 1: Claude 사전 분석 (Claude는 파일 직접 읽음 → projectContext 불필요)
                     console.log(`[DebateEngine] Gemini-Solo Step 1/3: Claude 사전 분석`);
                     callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Gemini Solo`);
                     await this._runClaude(callbacks, {
                         suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 후 Gemini에게 넘깁니다.',
-                        projectContext, projectPath: this.projectPath,
+                        projectContext: null, projectPath: this.projectPath,
                     });
                     if (!this.running) break;
 
@@ -406,12 +417,12 @@ class DebateEngine {
                     });
                     if (!this.running) break;
 
-                    // Step 3: Claude 최종 정리
+                    // Step 3: Claude 최종 정리 (Claude는 파일 직접 읽음 → projectContext 불필요)
                     console.log(`[DebateEngine] Gemini-Solo Step 3/3: Claude 최종 정리`);
                     callbacks.onStatusChange(`💬 Claude 최종 정리중... | Gemini Solo`);
                     await this._runClaude(callbacks, {
                         suffix: 'Gemini 결과를 종합하여 최종 코드를 정리하고 구체적인 실행 가능한 코드를 제시하세요.',
-                        projectContext, projectPath: this.projectPath,
+                        projectContext: null, projectPath: this.projectPath,
                     });
                     if (!this.running) break;
 
