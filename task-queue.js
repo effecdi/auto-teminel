@@ -26,6 +26,12 @@ class TaskQueue {
 
     /** Add a task and start processing. Returns the created task. */
     enqueue(projectId, projectName, text) {
+        // 빈 텍스트 전송 방지 — 빈 프롬프트가 PTY로 전달되면 CLI가 종료될 수 있음
+        if (!text || !text.trim()) {
+            safelog(`[TaskQueue] REJECTED empty text for project ${projectName}`);
+            return null;
+        }
+
         // 같은 프로젝트에서 60초 이상 running 상태인 태스크를 done으로 강제 전환 (stuck 방지)
         const now = Date.now();
         for (const t of this._tasks) {

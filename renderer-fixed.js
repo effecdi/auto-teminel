@@ -3717,9 +3717,12 @@ function setupTaskInputShortcut() {
     if (!textarea) return;
     console.log('[Setup] taskInput found, attaching listeners');
 
+    let _sendHandledByKeydown = false; // keydown에서 처리했으면 input 이벤트에서 중복 전송 방지
+
     textarea.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && e.keyCode !== 229) {
+        if (e.key === 'Enter' && !e.shiftKey && e.keyCode !== 229 && !e.isComposing) {
             e.preventDefault();
+            _sendHandledByKeydown = true;
             if (aiChatMode) {
                 sendAiMessage();
             } else {
@@ -3742,11 +3745,18 @@ function setupTaskInputShortcut() {
 
         if (e.inputType === 'insertLineBreak') {
             textarea.value = textarea.value.replace(/\n+$/, '');
+            // keydown에서 이미 전송 처리된 경우 중복 전송 방지
+            if (_sendHandledByKeydown) {
+                _sendHandledByKeydown = false;
+                return;
+            }
             if (aiChatMode) {
                 sendAiMessage();
             } else {
                 sendTask();
             }
+        } else {
+            _sendHandledByKeydown = false;
         }
     });
 

@@ -50,6 +50,11 @@ const taskQueue = new TaskQueue({
     writeToPty: (projectId, text) => {
         const entry = ptyPool.get(projectId);
         if (!entry || !entry.alive || !entry.process) return;
+        // 빈 텍스트가 PTY에 전달되면 Enter만 전송되어 CLI 종료 가능 — 차단
+        if (!text || !text.trim()) {
+            console.log(`[writeToPty] BLOCKED empty text for project ${projectId}`);
+            return;
+        }
         const PASTE_START = '\x1b[200~';
         const PASTE_END   = '\x1b[201~';
         entry.process.write(PASTE_START + text + PASTE_END);
@@ -3109,6 +3114,12 @@ function makePipelineCallbacks(projectId) {
 }
 
 ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) => {
+    // 빈 텍스트 전송 방지
+    if (!text || !text.trim()) {
+        console.log(`[pipeline.submit] REJECTED empty text for project ${projectId}`);
+        return { success: false, error: 'empty text' };
+    }
+
     // Always use queue to prevent race conditions with concurrent submissions.
     // The queue handles sequencing properly: one task at a time per project,
     // and dispatches immediately if claudeReady=true and no running tasks.
