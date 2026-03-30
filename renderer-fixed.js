@@ -3969,7 +3969,7 @@ function _buildTaskItem(task) {
     const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const displayText = task.text.length > 150 ? task.text.substring(0, 150) + '…' : task.text;
 
-    const deleteBtn = task.status === 'pending'
+    const deleteBtn = task.status !== 'running'
         ? `<button class="task-delete-btn" onclick="event.stopPropagation(); removeTask(${task.id})" title="Remove from queue">✕</button>`
         : '';
 
@@ -4063,14 +4063,14 @@ function renderTaskList() {
                 const actionBtns = existing.querySelector('.task-action-btns');
                 if (actionBtns) {
                     let delBtn = actionBtns.querySelector('.task-delete-btn');
-                    if (task.status === 'pending' && !delBtn) {
+                    if (task.status !== 'running' && !delBtn) {
                         delBtn = document.createElement('button');
                         delBtn.className = 'task-delete-btn';
                         delBtn.title = 'Remove from queue';
                         delBtn.textContent = '✕';
                         delBtn.onclick = (e) => { e.stopPropagation(); removeTask(task.id); };
                         actionBtns.appendChild(delBtn);
-                    } else if (task.status !== 'pending' && delBtn) {
+                    } else if (task.status === 'running' && delBtn) {
                         delBtn.remove();
                     }
                 }

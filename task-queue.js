@@ -156,11 +156,11 @@ class TaskQueue {
         return interruptedText;
     }
 
-    /** Remove a pending task. Returns true if removed. */
+    /** Remove a pending or done task. Returns true if removed. */
     remove(taskId) {
         const idx = this._tasks.findIndex(t => t.id === taskId);
         if (idx === -1) return false;
-        if (this._tasks[idx].status !== 'pending') return false;
+        if (this._tasks[idx].status === 'running') return false; // running은 삭제 불가
         this._tasks.splice(idx, 1);
         this._notify();
         return true;
