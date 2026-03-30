@@ -744,12 +744,22 @@ function resetIdleTimer(projectId) {
         // Clear auto-action suppression — CLI response is done, safe to detect errors again
         errorSuppressAutoAction.delete(projectId);
 
-        // Grace period: ignore idle if dispatch happened less than 8s ago
-        // Claude CLI needs time to start processing (thinking, loading files, etc.)
+        // Grace period: ignore idle if dispatch happened less than 8s ago AND claudeReady is still false.
+        // If claudeReady=true, Claude already showed its prompt — safe to mark idle immediately.
         const entry = ptyPool.get(projectId);
         const DISPATCH_GRACE_PERIOD = 8000; // 8 seconds
-        if (entry && entry._lastDispatchTime && (Date.now() - entry._lastDispatchTime < DISPATCH_GRACE_PERIOD)) {
-            console.log(`[Idle] Ignoring idle for ${projectId} — dispatch grace period (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 8s)`);
+        if (entry && entry._lastDispatchTime && !entry.claudeReady &&
+                (Date.now() - entry._lastDispatchTime < DISPATCH_GRACE_PERIOD)) {
+            console.log(`[Idle] Grace period active for ${projectId} (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 8s, claudeReady=false) — rescheduling`);
+            // Re-schedule to fire after grace period ends — prevents tasks getting stuck in 'running'
+            const retryAfter = DISPATCH_GRACE_PERIOD - (Date.now() - entry._lastDispatchTime) + 500;
+            idleTimers.set(projectId, {
+                timer: setTimeout(() => {
+                    idleTimers.delete(projectId);
+                    resetIdleTimer(projectId);
+                }, retryAfter),
+                lastOutput: Date.now()
+            });
             return; // Don't mark idle yet, wait for real output
         }
 

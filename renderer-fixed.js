@@ -3960,6 +3960,72 @@ function updateQueueProgress() {
     if (fill) fill.style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
 }
 
+function _buildTaskItem(task) {
+    const item = document.createElement('div');
+    item.className = `task-item task-${task.status}`;
+    item.dataset.taskId = task.id;
+
+    const time = new Date(task.timestamp);
+    const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const displayText = task.text.length > 150 ? task.text.substring(0, 150) + '…' : task.text;
+
+    const deleteBtn = task.status === 'pending'
+        ? `<button class="task-delete-btn" onclick="event.stopPropagation(); removeTask(${task.id})" title="Remove from queue">✕</button>`
+        : '';
+
+    item.innerHTML = `
+        <div class="task-item-header">
+            <span class="task-status-dot ${task.status}"></span>
+            <span class="task-item-status ${task.status}">${task.status}</span>
+            <div class="task-action-btns">
+                <button class="task-action-btn task-refill-btn" data-task-id="${task.id}" title="프롬프트에 다시 입력">↩</button>
+                <button class="task-action-btn task-copy-btn" data-task-id="${task.id}" title="복사">⧉</button>
+                ${deleteBtn}
+            </div>
+        </div>
+        <div class="task-item-text">${escapeHtml(displayText)}</div>
+        <div class="task-item-meta">
+            <span class="history-project">${escapeHtml(task.project)}</span>
+            <span class="task-item-time">${timeStr}</span>
+        </div>
+    `;
+
+    const refillBtn = item.querySelector('.task-refill-btn');
+    if (refillBtn) {
+        refillBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const textarea = document.getElementById('taskInput');
+            if (textarea) {
+                textarea.value = task.text;
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
+                textarea.focus();
+                showToast('Prompt restored', 'info');
+            }
+        });
+    }
+
+    const copyBtn = item.querySelector('.task-copy-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(task.text).then(() => {
+                showToast('Copied to clipboard', 'info');
+            }).catch(() => {
+                const tmp = document.createElement('textarea');
+                tmp.value = task.text;
+                document.body.appendChild(tmp);
+                tmp.select();
+                document.execCommand('copy');
+                document.body.removeChild(tmp);
+                showToast('Copied to clipboard', 'info');
+            });
+        });
+    }
+
+    return item;
+}
+
 function renderTaskList() {
     const list = document.getElementById('tasksList');
     if (!list) return;
@@ -3969,72 +4035,53 @@ function renderTaskList() {
         return;
     }
 
-    list.innerHTML = '';
-    taskQueue.forEach(task => {
-        const item = document.createElement('div');
-        item.className = `task-item task-${task.status}`;
+    // DOM diffing: reuse existing items to avoid CSS animation resets (prevents flickering)
+    const existingMap = new Map();
+    list.querySelectorAll('[data-task-id]').forEach(el => {
+        existingMap.set(parseInt(el.dataset.taskId), el);
+    });
 
-        const time = new Date(task.timestamp);
-        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const displayText = task.text.length > 150 ? task.text.substring(0, 150) + '…' : task.text;
+    // Remove items that no longer exist in queue
+    existingMap.forEach((el, id) => {
+        if (!taskQueue.find(t => t.id === id)) el.remove();
+    });
 
-        const deleteBtn = task.status === 'pending'
-            ? `<button class="task-delete-btn" onclick="event.stopPropagation(); removeTask(${task.id})" title="Remove from queue">✕</button>`
-            : '';
-
-        item.innerHTML = `
-            <div class="task-item-header">
-                <span class="task-status-dot ${task.status}"></span>
-                <span class="task-item-status ${task.status}">${task.status}</span>
-                <div class="task-action-btns">
-                    <button class="task-action-btn task-refill-btn" data-task-id="${task.id}" title="프롬프트에 다시 입력">↩</button>
-                    <button class="task-action-btn task-copy-btn" data-task-id="${task.id}" title="복사">⧉</button>
-                    ${deleteBtn}
-                </div>
-            </div>
-            <div class="task-item-text">${escapeHtml(displayText)}</div>
-            <div class="task-item-meta">
-                <span class="history-project">${escapeHtml(task.project)}</span>
-                <span class="task-item-time">${timeStr}</span>
-            </div>
-        `;
-
-        // 재입력 버튼: 프롬프트 textarea에 텍스트 복원
-        const refillBtn = item.querySelector('.task-refill-btn');
-        if (refillBtn) {
-            refillBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const textarea = document.getElementById('taskInput');
-                if (textarea) {
-                    textarea.value = task.text;
-                    textarea.style.height = 'auto';
-                    textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
-                    textarea.focus();
-                    showToast('Prompt restored', 'info');
+    // Update existing items (status only) or add new items
+    taskQueue.forEach((task, index) => {
+        const existing = existingMap.get(task.id);
+        if (existing) {
+            // Only update status-related parts — preserves CSS animation state
+            const prevStatus = existing.dataset.prevStatus;
+            if (prevStatus !== task.status) {
+                existing.className = `task-item task-${task.status}`;
+                existing.dataset.prevStatus = task.status;
+                const dot = existing.querySelector('.task-status-dot');
+                if (dot) dot.className = `task-status-dot ${task.status}`;
+                const statusEl = existing.querySelector('.task-item-status');
+                if (statusEl) { statusEl.className = `task-item-status ${task.status}`; statusEl.textContent = task.status; }
+                // Show/hide delete button based on status
+                const actionBtns = existing.querySelector('.task-action-btns');
+                if (actionBtns) {
+                    let delBtn = actionBtns.querySelector('.task-delete-btn');
+                    if (task.status === 'pending' && !delBtn) {
+                        delBtn = document.createElement('button');
+                        delBtn.className = 'task-delete-btn';
+                        delBtn.title = 'Remove from queue';
+                        delBtn.textContent = '✕';
+                        delBtn.onclick = (e) => { e.stopPropagation(); removeTask(task.id); };
+                        actionBtns.appendChild(delBtn);
+                    } else if (task.status !== 'pending' && delBtn) {
+                        delBtn.remove();
+                    }
                 }
-            });
+            }
+            // Ensure correct DOM order
+            if (list.children[index] !== existing) list.appendChild(existing);
+        } else {
+            const item = _buildTaskItem(task);
+            item.dataset.prevStatus = task.status;
+            list.appendChild(item);
         }
-
-        // 복사 버튼: 클립보드에 텍스트 복사
-        const copyBtn = item.querySelector('.task-copy-btn');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(task.text).then(() => {
-                    showToast('Copied to clipboard', 'info');
-                }).catch(() => {
-                    const tmp = document.createElement('textarea');
-                    tmp.value = task.text;
-                    document.body.appendChild(tmp);
-                    tmp.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(tmp);
-                    showToast('Copied to clipboard', 'info');
-                });
-            });
-        }
-
-        list.appendChild(item);
     });
 }
 
