@@ -1087,7 +1087,7 @@ function destroyAllPty() {
  * Shared PTY spawn — used by both `terminal.spawn` IPC and auto-restart.
  * Returns { success, pid, alreadyRunning } or { success: false, error }.
  */
-function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
+function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, claudeModel) {
     try {
         const existing = ptyPool.get(projectId);
         if (existing && existing.alive) {
@@ -1174,7 +1174,8 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
             claudeReady: false,
             manualKill: false,
             projectPath: projectPath,
-            claudeArgs: claudeArgs || ''
+            claudeArgs: claudeArgs || '',
+            claudeModel: claudeModel || ''
         };
 
         // PTY output → renderer + idle detection + error detection
@@ -1238,7 +1239,7 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
                         mainWindow.webContents.send('autoRestart.maxRetriesReached', { projectId });
                     }
                 } else {
-                    attemptAutoRestart(projectId, entry.projectPath, entry.claudeArgs, cols, rows);
+                    attemptAutoRestart(projectId, entry.projectPath, entry.claudeArgs, cols, rows, entry.claudeModel);
                 }
             }
         });
@@ -1248,7 +1249,8 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
 
         const defaultArgs = store.get('defaultClaudeArgs', '');
         const finalArgs = (claudeArgs || defaultArgs || '').trim();
-        const claudeCmd = finalArgs ? `claude ${finalArgs}` : 'claude';
+        const modelFlag = claudeModel ? `--model ${claudeModel}` : '';
+        const claudeCmd = `claude ${modelFlag} ${finalArgs}`.replace(/\s+/g, ' ').trim();
 
         entry.autoRunTimer = setTimeout(() => {
             entry.autoRunTimer = null;
@@ -1276,15 +1278,15 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows) {
     }
 }
 
-ipcMain.handle('terminal.spawn', (event, { projectId, projectPath, claudeArgs, cols, rows }) => {
-    return spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows);
+ipcMain.handle('terminal.spawn', (event, { projectId, projectPath, claudeArgs, claudeModel, cols, rows }) => {
+    return spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, claudeModel);
 });
 
 // ===================================================================
 //  Auto-Restart Logic
 // ===================================================================
 
-function attemptAutoRestart(projectId, projectPath, claudeArgs, cols, rows) {
+function attemptAutoRestart(projectId, projectPath, claudeArgs, cols, rows, claudeModel) {
     // Rate-limit check
     const retryInfo = autoRestartRetryCount.get(projectId);
     if (retryInfo) {
@@ -1317,7 +1319,7 @@ function attemptAutoRestart(projectId, projectPath, claudeArgs, cols, rows) {
             return;
         }
 
-        const result = spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows);
+        const result = spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, claudeModel);
 
         if (result.success) {
             if (mainWindow && !mainWindow.isDestroyed()) {

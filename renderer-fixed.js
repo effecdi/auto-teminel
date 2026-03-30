@@ -471,10 +471,14 @@ async function ensurePtyRunning(project) {
     const cols = entry ? entry.term.cols : 120;
     const rows = entry ? entry.term.rows : 30;
 
+    // Include selected model in spawn args
+    const selectedModel = localStorage.getItem(`model_${project.id}`) || 'claude-sonnet-4-6';
+
     const result = await ipcRenderer.invoke('terminal.spawn', {
         projectId: project.id,
         projectPath: project.path,
         claudeArgs: project.claudeArgs || '',
+        claudeModel: selectedModel,
         cols,
         rows
     });
@@ -550,6 +554,13 @@ async function selectProject(projectId) {
             taskTextarea.style.height = taskTextarea.scrollHeight + 'px';
         }
         taskTextarea.placeholder = `[${currentProject.name}] 작업 요청... (Enter to send)`;
+    }
+
+    // Restore model selector for this project
+    const modelSelect = document.getElementById('modelSelect');
+    if (modelSelect) {
+        const savedModel = localStorage.getItem(`model_${projectId}`) || 'claude-sonnet-4-6';
+        modelSelect.value = savedModel;
     }
 
     // Clean up AI chat state when switching projects
@@ -4749,6 +4760,26 @@ ipcRenderer.on('computerControl.verifyResult', (event, data) => {
 window.addEventListener('resize', () => {
     if (ccMode) {
         ccUpdateBrowserBounds();
+    }
+});
+
+// ===================================================================
+//  Model Selector
+// ===================================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modelSelect = document.getElementById('modelSelect');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', async () => {
+            const model = modelSelect.value;
+            if (currentProject) {
+                localStorage.setItem(`model_${currentProject.id}`, model);
+                const modelName = modelSelect.options[modelSelect.selectedIndex].text;
+                showToast(`Model: ${modelName}`, 'info');
+                // Restart PTY with new model
+                await restartTerminal();
+            }
+        });
     }
 });
 
