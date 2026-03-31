@@ -58,8 +58,9 @@ const taskQueue = new TaskQueue({
         const PASTE_START = '\x1b[200~';
         const PASTE_END   = '\x1b[201~';
         entry.process.write(PASTE_START + text + PASTE_END);
-        // Use same dynamic delay as global writeToPty: 300ms base + up to 500ms for long text
-        const baseDelay = 300;
+        // Give TUI time to process paste before sending Enter.
+        // Increased base from 300ms to 500ms to prevent premature Enter on slower systems.
+        const baseDelay = 500;
         const extraDelay = Math.min(text.length * 0.5, 500);
         const delay = Math.round(baseDelay + extraDelay);
         setTimeout(() => {
@@ -433,8 +434,8 @@ function writeToPty(entry, text) {
     const PASTE_END   = '\x1b[201~';
     entry.process.write(PASTE_START + text + PASTE_END);
     // Give TUI enough time to process pasted text before sending Enter.
-    // Base 300ms + proportional to text length (max +500ms for very long texts).
-    const baseDelay = 300;
+    // Base 500ms + proportional to text length (max +500ms for very long texts).
+    const baseDelay = 500;
     const extraDelay = Math.min(text.length * 0.5, 500);
     const delay = Math.round(baseDelay + extraDelay);
     setTimeout(() => {
@@ -747,10 +748,10 @@ function resetIdleTimer(projectId) {
         // Grace period: ignore idle if dispatch happened less than 8s ago AND claudeReady is still false.
         // If claudeReady=true, Claude already showed its prompt — safe to mark idle immediately.
         const entry = ptyPool.get(projectId);
-        const DISPATCH_GRACE_PERIOD = 8000; // 8 seconds
+        const DISPATCH_GRACE_PERIOD = 20000; // 20 seconds (was 8s — increased to handle Claude API thinking time)
         if (entry && entry._lastDispatchTime && !entry.claudeReady &&
                 (Date.now() - entry._lastDispatchTime < DISPATCH_GRACE_PERIOD)) {
-            console.log(`[Idle] Grace period active for ${projectId} (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 8s, claudeReady=false) — rescheduling`);
+            console.log(`[Idle] Grace period active for ${projectId} (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 20s, claudeReady=false) — rescheduling`);
             // Re-schedule to fire after grace period ends — prevents tasks getting stuck in 'running'
             const retryAfter = DISPATCH_GRACE_PERIOD - (Date.now() - entry._lastDispatchTime) + 500;
             idleTimers.set(projectId, {
@@ -1202,26 +1203,34 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             // Output-based claudeReady detection:
             // When Claude CLI shows its prompt (❯) and we're NOT in an interview, mark ready
             if (!entry.claudeReady && entry.alive) {
-                const clean = stripAnsi(data);
-                const buf = autoApproveOutputBuffer.get(projectId) || '';
-                const hasInterviewPatterns = buf.includes('Type something') ||
-                                              buf.includes('Skip interview') ||
-                                              buf.includes('[ ]') ||
-                                              buf.includes('[✔]');
-                // Claude CLI prompt indicators
-                const hasReadyIndicator = clean.includes('❯') || clean.includes('How can I help') ||
-                                           clean.includes('cwd:') || buf.includes('How can I help') ||
-                                           clean.includes('Welcome back') || buf.includes('Welcome back') ||
-                                           clean.includes('Tips for getting started') ||
-                                           clean.includes('Claude Code v');
-                if (hasReadyIndicator && !hasInterviewPatterns) {
-                    entry.claudeReady = true;
-                    if (entry._readyFallback) {
-                        clearTimeout(entry._readyFallback);
-                        entry._readyFallback = null;
+                // Suppress detection for 1.5s after dispatch to prevent paste-echo false positives.
+                // When text is dispatched, the TUI echoes "❯ [pasted text]" which would
+                // prematurely trigger claudeReady=true before Enter is even sent.
+                const dispatchAge = entry._lastDispatchTime ? Date.now() - entry._lastDispatchTime : Infinity;
+                if (dispatchAge < 1500) {
+                    // Too soon after dispatch — skip to avoid false positive from input echo
+                } else {
+                    const clean = stripAnsi(data);
+                    const buf = autoApproveOutputBuffer.get(projectId) || '';
+                    const hasInterviewPatterns = buf.includes('Type something') ||
+                                                  buf.includes('Skip interview') ||
+                                                  buf.includes('[ ]') ||
+                                                  buf.includes('[✔]');
+                    // Claude CLI prompt indicators
+                    const hasReadyIndicator = clean.includes('❯') || clean.includes('How can I help') ||
+                                               clean.includes('cwd:') || buf.includes('How can I help') ||
+                                               clean.includes('Welcome back') || buf.includes('Welcome back') ||
+                                               clean.includes('Tips for getting started') ||
+                                               clean.includes('Claude Code v');
+                    if (hasReadyIndicator && !hasInterviewPatterns) {
+                        entry.claudeReady = true;
+                        if (entry._readyFallback) {
+                            clearTimeout(entry._readyFallback);
+                            entry._readyFallback = null;
+                        }
+                        console.log(`[Main] Claude CLI ready (output-detected) for ${projectId}`);
+                        taskQueue.process();
                     }
-                    console.log(`[Main] Claude CLI ready (output-detected) for ${projectId}`);
-                    taskQueue.process();
                 }
             }
         });
