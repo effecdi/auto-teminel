@@ -343,6 +343,15 @@ class DebateEngine {
             return files;
         };
 
+        // When media files are attached, inject visual analysis instructions
+        const hasMedia = pendingMediaFiles.length > 0;
+        const MEDIA_GEMINI_SUFFIX = hasMedia
+            ? '\n\n【첨부된 이미지/스크린샷 분석 필수】첨부된 이미지를 반드시 시각적으로 분석하세요. 현재 디자인의 레이아웃·색상·컴포넌트·문제점을 구체적으로 묘사하고, 개선된 CSS/코드를 파일 경로와 함께 제시하세요.'
+            : '';
+        const MEDIA_CLAUDE_STEP1_SUFFIX = hasMedia
+            ? '사용자가 UI 스크린샷/동영상을 첨부했습니다. Gemini가 이미지를 직접 분석할 예정입니다. 먼저 UI 관련 코드 파일(CSS, HTML, renderer 등)을 읽고 구조를 파악하여 어떤 파일을 수정해야 할지 Gemini에게 알려주세요.'
+            : '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 결과를 상세하게 공유하세요. Gemini(디자이너)가 이 분석을 보고 응답합니다.';
+
         try {
             for (let round = 1; round <= maxRounds; round++) {
                 if (!this.running) break;
@@ -358,7 +367,7 @@ class DebateEngine {
                     console.log(`[DebateEngine] Step 1/3: Claude 분석 시작 (Round ${round}/${maxRounds})`);
                     callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
-                        suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 결과를 상세하게 공유하세요. Gemini(디자이너)가 이 분석을 보고 응답합니다.',
+                        suffix: MEDIA_CLAUDE_STEP1_SUFFIX,
                         projectContext: null, projectPath: this.projectPath,
                     });
                     console.log(`[DebateEngine] Step 1/3: Claude 분석 완료`);
@@ -372,7 +381,7 @@ class DebateEngine {
                     console.log(`[DebateEngine] Step 2/3: Gemini 응답 시작`);
                     callbacks.onStatusChange(`💬 Gemini 응답중... | Round ${round}/${maxRounds}`);
                     await this._runGemini(callbacks, {
-                        suffix: modeConfig.geminiSuffix,
+                        suffix: modeConfig.geminiSuffix + MEDIA_GEMINI_SUFFIX,
                         projectContext, projectPath: this.projectPath,
                         attachedMediaFiles: consumeMedia(),
                     });
@@ -402,7 +411,9 @@ class DebateEngine {
                     console.log(`[DebateEngine] Gemini-Solo Step 1/3: Claude 사전 분석`);
                     callbacks.onStatusChange(`💬 Claude 프로젝트 분석중... | Gemini Solo`);
                     await this._runClaude(callbacks, {
-                        suffix: '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 후 Gemini에게 넘깁니다.',
+                        suffix: hasMedia
+                            ? '사용자가 UI 스크린샷/동영상을 첨부했습니다. Gemini가 이미지를 직접 분석할 예정입니다. UI 관련 코드 파일들을 읽고 구조를 파악하세요.'
+                            : '프로젝트의 관련 파일을 직접 읽고 현재 코드 구조를 분석하세요. 분석 후 Gemini에게 넘깁니다.',
                         projectContext: null, projectPath: this.projectPath,
                     });
                     if (!this.running) break;
@@ -411,7 +422,7 @@ class DebateEngine {
                     console.log(`[DebateEngine] Gemini-Solo Step 2/3: Gemini 메인 응답`);
                     callbacks.onStatusChange(`💬 Gemini 응답중... | Gemini Solo`);
                     await this._runGemini(callbacks, {
-                        suffix: SOLO_SUFFIX,
+                        suffix: SOLO_SUFFIX + MEDIA_GEMINI_SUFFIX,
                         projectContext, projectPath: this.projectPath,
                         attachedMediaFiles: consumeMedia(),
                     });
