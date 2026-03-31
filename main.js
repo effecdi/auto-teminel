@@ -737,6 +737,28 @@ Be thorough. Do not give a shallow "looks good" response.`;
     console.log(`[Main] Auto-verify sent for project ${projectId}: ${pending.type}`);
 }
 
+// Shared idle-processing logic used by both normal idle and grace-period retry.
+function _processIdleForProject(projectId) {
+    errorSuppressAutoAction.delete(projectId);
+    const entry = ptyPool.get(projectId);
+    // Restore claudeReady since idle means Claude CLI returned to prompt
+    if (entry && entry.alive) {
+        entry.claudeReady = true;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal.idle', { projectId });
+    }
+    taskQueue.markIdle(projectId);
+    broadcastEvent('terminal.idle', projectId);
+    if (!taskQueue.hasWork(projectId)) {
+        if (pendingAutoFix.has(projectId)) {
+            processPendingAutoFix(projectId);
+        } else {
+            processPendingAutoVerify(projectId);
+        }
+    }
+}
+
 function resetIdleTimer(projectId) {
     const existing = idleTimers.get(projectId);
     if (existing) clearTimeout(existing.timer);
@@ -748,42 +770,24 @@ function resetIdleTimer(projectId) {
         // Grace period: ignore idle if dispatch happened less than 8s ago AND claudeReady is still false.
         // If claudeReady=true, Claude already showed its prompt — safe to mark idle immediately.
         const entry = ptyPool.get(projectId);
-        const DISPATCH_GRACE_PERIOD = 20000; // 20 seconds (was 8s — increased to handle Claude API thinking time)
+        const DISPATCH_GRACE_PERIOD = 8000; // 8 seconds (was increased to 20s in v4.7.16 but that caused 25s stuck bug)
         if (entry && entry._lastDispatchTime && !entry.claudeReady &&
                 (Date.now() - entry._lastDispatchTime < DISPATCH_GRACE_PERIOD)) {
-            console.log(`[Idle] Grace period active for ${projectId} (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 20s, claudeReady=false) — rescheduling`);
-            // Re-schedule to fire after grace period ends — prevents tasks getting stuck in 'running'
+            console.log(`[Idle] Grace period active for ${projectId} (${Math.round((Date.now() - entry._lastDispatchTime) / 1000)}s < 8s, claudeReady=false) — rescheduling`);
+            // Re-schedule to fire after grace period ends.
+            // IMPORTANT: directly call _processIdleForProject (not resetIdleTimer) to avoid extra 5s wait.
             const retryAfter = DISPATCH_GRACE_PERIOD - (Date.now() - entry._lastDispatchTime) + 500;
             idleTimers.set(projectId, {
                 timer: setTimeout(() => {
                     idleTimers.delete(projectId);
-                    resetIdleTimer(projectId);
+                    _processIdleForProject(projectId);
                 }, retryAfter),
                 lastOutput: Date.now()
             });
             return; // Don't mark idle yet, wait for real output
         }
 
-        // Restore claudeReady since idle means Claude CLI returned to prompt
-        if (entry && entry.alive) {
-            entry.claudeReady = true;
-        }
-
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('terminal.idle', { projectId });
-        }
-        // Advance task queue
-        const taskCompleted = taskQueue.markIdle(projectId);
-        // Broadcast idle to remote WS clients
-        broadcastEvent('terminal.idle', projectId);
-        // If queue has no more work for this project, signal all-clear for auto-fix/verify
-        if (!taskQueue.hasWork(projectId)) {
-            if (pendingAutoFix.has(projectId)) {
-                processPendingAutoFix(projectId);
-            } else {
-                processPendingAutoVerify(projectId);
-            }
-        }
+        _processIdleForProject(projectId);
     }, IDLE_TIMEOUT);
 
     idleTimers.set(projectId, { timer, lastOutput: Date.now() });
@@ -1203,11 +1207,11 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             // Output-based claudeReady detection:
             // When Claude CLI shows its prompt (❯) and we're NOT in an interview, mark ready
             if (!entry.claudeReady && entry.alive) {
-                // Suppress detection for 1.5s after dispatch to prevent paste-echo false positives.
-                // When text is dispatched, the TUI echoes "❯ [pasted text]" which would
-                // prematurely trigger claudeReady=true before Enter is even sent.
+                // Suppress detection for 1.1s after dispatch to prevent paste-echo false positives.
+                // Echo appears within ~100ms. Enter is sent at 500-1000ms. 1100ms covers Enter + 100ms buffer.
+                // (was 1500ms in v4.7.16, but combined with 20s grace period it caused up to 25s stuck)
                 const dispatchAge = entry._lastDispatchTime ? Date.now() - entry._lastDispatchTime : Infinity;
-                if (dispatchAge < 1500) {
+                if (dispatchAge < 1100) {
                     // Too soon after dispatch — skip to avoid false positive from input echo
                 } else {
                     const clean = stripAnsi(data);
