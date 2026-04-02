@@ -2412,6 +2412,7 @@ async function sendUnifiedTask(text) {
         showToast(`Error: ${err.message}`, 'error');
     }
     return true;
+}
 
 function expandTimelinePanel() {
     const panel = document.getElementById('timeline-panel');
