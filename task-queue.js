@@ -26,9 +26,24 @@ class TaskQueue {
 
     /** Add a task and start processing. Returns the created task. */
     enqueue(projectId, projectName, text) {
+        this._lastEnqueueError = null;
+
         // 빈 텍스트 전송 방지 — 빈 프롬프트가 PTY로 전달되면 CLI가 종료될 수 있음
         if (!text || !text.trim()) {
+            this._lastEnqueueError = 'empty';
             safelog(`[TaskQueue] REJECTED empty text for project ${projectName}`);
+            return null;
+        }
+
+        // 동일 프로젝트에 동일 텍스트가 이미 pending 중이면 중복 제출 방지
+        const duplicate = this._tasks.find(t =>
+            t.status === 'pending' &&
+            t.projectId === projectId &&
+            t.text.trim() === text.trim()
+        );
+        if (duplicate) {
+            this._lastEnqueueError = 'duplicate';
+            safelog(`[TaskQueue] REJECTED duplicate pending task for ${projectName}: "${text.substring(0, 50)}"`);
             return null;
         }
 

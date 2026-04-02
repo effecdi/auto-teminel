@@ -2399,15 +2399,19 @@ async function sendUnifiedTask(text) {
 
     // Send directly to task queue
     try {
-        await ipcRenderer.invoke('pipeline.submit', {
+        const result = await ipcRenderer.invoke('pipeline.submit', {
             projectId,
             text,
             routeMode: 'claude-solo'
         });
+        if (result && result.error === 'duplicate') {
+            showToast('동일한 태스크가 이미 대기 중입니다', 'warning');
+            return false; // 중복으로 거부됨
+        }
     } catch (err) {
         showToast(`Error: ${err.message}`, 'error');
     }
-}
+    return true;
 
 function expandTimelinePanel() {
     const panel = document.getElementById('timeline-panel');
@@ -3830,6 +3834,13 @@ async function sendTask() {
     // Clear draft for this project after sending
     taskInputDrafts.delete(targetProject.id);
 
+    // ALL input goes through unified pipeline (중복이면 false 반환)
+    const accepted = await sendUnifiedTask(fullText);
+    if (accepted === false) {
+        renderDashboard();
+        return; // 중복 거부 — history/activity 기록 생략
+    }
+
     // Save to prompt history
     promptHistory.unshift({ text, timestamp: Date.now(), project: targetProject.name });
     if (promptHistory.length > MAX_HISTORY) promptHistory.length = MAX_HISTORY;
@@ -3842,8 +3853,6 @@ async function sendTask() {
 
     addActivity('task', `Task: ${text.substring(0, 80)}${text.length > 80 ? '…' : ''}`, targetProject.name);
 
-    // ALL input goes through unified pipeline
-    await sendUnifiedTask(fullText);
     renderDashboard();
 }
 

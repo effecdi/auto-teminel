@@ -3151,7 +3151,13 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
     const projects = store.get('projects', []);
     const project = projects.find(p => p.id === projectId);
     const projectName = project ? project.name : projectId;
-    taskQueue.enqueue(projectId, projectName, text);
+    const task = taskQueue.enqueue(projectId, projectName, text);
+    if (!task) {
+        if (taskQueue._lastEnqueueError === 'duplicate') {
+            return { success: false, error: 'duplicate' };
+        }
+        return { success: false, error: 'empty text' };
+    }
     return { success: true, mode: 'queued' };
 });
 
