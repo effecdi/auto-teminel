@@ -1524,6 +1524,7 @@
                 <button class="auto-tab" data-tab="schedules" onclick="switchAutoTab('schedules')">Schedules</button>
                 <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
                 <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
+                <button class="auto-tab" data-tab="mcp" onclick="switchAutoTab('mcp'); renderMcpPanel()">MCP</button>
             </div>
 
             <!-- Tab: Tasks — queue list only (input moved to main area) -->
@@ -1571,6 +1572,17 @@
                     <span style="font-size:10px; color:var(--text-muted); flex:1;">Click a check to run it on the current project</span>
                 </div>
                 <div class="tab-scroll" id="securityList"></div>
+            </div>
+
+            <!-- Tab: MCP Manager -->
+            <div class="auto-tab-content" id="tab-mcp">
+                <div class="tab-toolbar">
+                    <span style="font-size:10px; color:var(--text-muted); flex:1;">MCP 서버 연결 상태 및 인증 관리</span>
+                    <button class="btn-icon-sm" onclick="renderMcpPanel()" title="새로고침">↻</button>
+                </div>
+                <div class="tab-scroll" id="mcpList">
+                    <div class="history-empty">MCP 서버 목록을 불러오는 중...</div>
+                </div>
             </div>
 
             <!-- Tab: Health Check -->

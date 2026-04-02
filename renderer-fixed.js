@@ -1481,6 +1481,105 @@ function switchAutoTab(tabName) {
 }
 
 // ===================================================================
+//  MCP Manager
+// ===================================================================
+
+async function renderMcpPanel() {
+    const list = document.getElementById('mcpList');
+    if (!list) return;
+    list.innerHTML = '<div class="history-empty">불러오는 중...</div>';
+
+    let servers = [];
+    try {
+        servers = await ipcRenderer.invoke('mcp.list');
+    } catch (e) {
+        list.innerHTML = `<div class="history-empty" style="color:#f56565">로드 실패: ${e.message}</div>`;
+        return;
+    }
+
+    if (!servers || servers.length === 0) {
+        list.innerHTML = '<div class="history-empty">~/.claude.json 에 등록된 MCP 서버가 없습니다</div>';
+        return;
+    }
+
+    list.innerHTML = '';
+
+    for (const srv of servers) {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:10px 12px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:6px;';
+
+        const statusColor = {
+            'connected': '#00e676',
+            'needs-auth': '#ffd740',
+            'token-expired': '#ff5252',
+            'stdio': '#4fc3f7',
+            'unknown': '#9e9e9e'
+        }[srv.status] || '#9e9e9e';
+
+        const statusLabel = {
+            'connected': '✓ 연결됨',
+            'needs-auth': '⚠ 인증 필요',
+            'token-expired': '✗ 토큰 만료',
+            'stdio': '● stdio',
+            'unknown': '? 알 수 없음'
+        }[srv.status] || srv.status;
+
+        let actionsHtml = '';
+        if (srv.status === 'needs-auth' || srv.status === 'token-expired') {
+            actionsHtml = `<button onclick="mcpAuthenticate('${escapeHtml(srv.name)}', '${escapeHtml(srv.url || '')}')"
+                style="background:#1976d2; color:#fff; border:none; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:11px;">
+                🔑 인증하기</button>`;
+        } else if (srv.status === 'connected') {
+            actionsHtml = `<button onclick="mcpRevoke('${escapeHtml(srv.name)}', '${escapeHtml(srv.url || '')}')"
+                style="background:transparent; color:#f56565; border:1px solid #f56565; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:11px;">
+                연결 해제</button>`;
+        }
+
+        item.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span style="font-size:13px; font-weight:600; color:var(--text-primary);">${escapeHtml(srv.name)}</span>
+                <span style="font-size:11px; color:${statusColor}; font-weight:600;">${statusLabel}</span>
+            </div>
+            ${srv.url ? `<div style="font-size:10px; color:var(--text-muted); word-break:break-all;">${escapeHtml(srv.url)}</div>` : ''}
+            ${actionsHtml ? `<div style="margin-top:2px;">${actionsHtml}</div>` : ''}
+        `;
+        list.appendChild(item);
+    }
+}
+
+async function mcpAuthenticate(serverName, serverUrl) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '인증 중... (브라우저에서 승인하세요)';
+    try {
+        const result = await ipcRenderer.invoke('mcp.authenticate', { serverName, serverUrl });
+        if (result.success) {
+            showToast(`${serverName} 인증 완료!`, 'success');
+            renderMcpPanel();
+        } else {
+            showToast(`인증 실패: ${result.error}`, 'error');
+            btn.disabled = false;
+            btn.textContent = '🔑 인증하기';
+        }
+    } catch (e) {
+        showToast(`오류: ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = '🔑 인증하기';
+    }
+}
+
+async function mcpRevoke(serverName, serverUrl) {
+    if (!confirm(`${serverName} 인증을 해제하시겠습니까?`)) return;
+    try {
+        await ipcRenderer.invoke('mcp.revoke', { serverName, serverUrl });
+        showToast(`${serverName} 연결 해제됨`, 'info');
+        renderMcpPanel();
+    } catch (e) {
+        showToast(`오류: ${e.message}`, 'error');
+    }
+}
+
+// ===================================================================
 //  Templates — CRUD
 // ===================================================================
 

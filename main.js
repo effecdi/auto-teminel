@@ -1,6 +1,9 @@
 // Claude CLI Terminal - Electron Main Process (v5 - Automation)
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain, dialog, nativeImage, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeImage, Menu, shell } = require('electron');
+const crypto = require('crypto');
+const http = require('http');
+const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -3235,4 +3238,220 @@ app.whenReady().then(() => {
             console.log('[Main] REMOTE_API_KEY not set — remote server disabled.');
         }
     }, 2000);
+});
+
+// ===================================================================
+//  MCP Manager — IPC Handlers
+// ===================================================================
+
+function computeMcpOAuthKey(serverName, serverConfig) {
+    const data = JSON.stringify({ type: serverConfig.type, url: serverConfig.url, headers: serverConfig.headers || {} });
+    const hash = crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
+    return `${serverName}|${hash}`;
+}
+
+function readClaudeJson() {
+    try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')); } catch (e) { return {}; }
+}
+
+function writeClaudeJson(data) {
+    fs.writeFileSync(path.join(os.homedir(), '.claude.json'), JSON.stringify(data, null, 2));
+}
+
+function findAvailablePort() {
+    return new Promise((resolve, reject) => {
+        const srv = net.createServer();
+        srv.listen(0, () => { const port = srv.address().port; srv.close(() => resolve(port)); });
+        srv.on('error', reject);
+    });
+}
+
+ipcMain.handle('mcp.list', async () => {
+    const claudeJson = readClaudeJson();
+    const needsAuthPath = path.join(os.homedir(), '.claude', 'mcp-needs-auth-cache.json');
+    let needsAuth = {};
+    try { needsAuth = JSON.parse(fs.readFileSync(needsAuthPath, 'utf8')); } catch (e) {}
+
+    const userServers = claudeJson.mcpServers || {};
+    const mcpOAuth = claudeJson.mcpOAuth || {};
+
+    return Object.entries(userServers).map(([name, config]) => {
+        let status = 'unknown';
+        if (config.type === 'http') {
+            const key = computeMcpOAuthKey(name, config);
+            const token = mcpOAuth[key];
+            if (token && token.accessToken && token.expiresAt > Date.now()) {
+                status = 'connected';
+            } else if (token && token.refreshToken) {
+                status = 'token-expired';
+            } else {
+                status = 'needs-auth';
+            }
+        } else {
+            status = 'stdio';
+        }
+        return { name, type: config.type, url: config.url, status };
+    });
+});
+
+ipcMain.handle('mcp.authenticate', async (event, { serverName, serverUrl }) => {
+    try {
+        // 1. Fetch OAuth authorization server metadata
+        const wwwAuthRes = await fetch(serverUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: {} }) });
+        if (wwwAuthRes.status !== 401) return { success: false, error: 'Server did not return 401' };
+
+        const wwwAuth = wwwAuthRes.headers.get('www-authenticate') || '';
+        const authServerUriMatch = wwwAuth.match(/authorization_uri="([^"]+)"/);
+        if (!authServerUriMatch) return { success: false, error: 'No authorization_uri in WWW-Authenticate' };
+
+        const metaRes = await fetch(authServerUriMatch[1]);
+        const metadata = await metaRes.json();
+
+        // 2. Find available port for callback
+        const port = await findAvailablePort();
+        const redirectUri = `http://localhost:${port}/callback`;
+
+        // 3. Register dynamic client (RFC 7591)
+        const regRes = await fetch(metadata.registration_endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_name: `Claude Code (${serverName})`,
+                redirect_uris: [redirectUri],
+                grant_types: ['authorization_code', 'refresh_token'],
+                response_types: ['code'],
+                token_endpoint_auth_method: 'none'
+            })
+        });
+        if (!regRes.ok) return { success: false, error: `Client registration failed: ${regRes.status}` };
+        const clientInfo = await regRes.json();
+
+        // 4. Generate PKCE + state
+        const codeVerifier = crypto.randomBytes(32).toString('base64url');
+        const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+        const state = crypto.randomBytes(16).toString('base64url');
+
+        // 5. Start local callback server
+        const result = await new Promise((resolve, reject) => {
+            const server = http.createServer(async (req, res) => {
+                try {
+                    const url = new URL(`http://localhost${req.url}`);
+                    const code = url.searchParams.get('code');
+                    const returnedState = url.searchParams.get('state');
+                    const error = url.searchParams.get('error');
+
+                    if (error) {
+                        res.writeHead(400, { 'Content-Type': 'text/html' });
+                        res.end(`<h1>Authentication Error</h1><p>${error}</p><p>You can close this window.</p>`);
+                        server.close();
+                        resolve({ success: false, error });
+                        return;
+                    }
+
+                    if (returnedState !== state) {
+                        res.writeHead(400, { 'Content-Type': 'text/html' });
+                        res.end('<h1>State mismatch — possible CSRF attack</h1>');
+                        server.close();
+                        resolve({ success: false, error: 'State mismatch' });
+                        return;
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end('<h1 style="font-family:sans-serif;color:#00c853;padding:40px">✓ Figma authenticated successfully!<br><small style="color:#666;font-size:14px">You can close this window.</small></h1>');
+                    server.close();
+
+                    // 6. Exchange code for token
+                    const tokenRes = await fetch(metadata.token_endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            grant_type: 'authorization_code',
+                            code,
+                            redirect_uri: redirectUri,
+                            client_id: clientInfo.client_id,
+                            code_verifier: codeVerifier
+                        }).toString()
+                    });
+                    const tokenData = await tokenRes.json();
+                    if (!tokenData.access_token) {
+                        resolve({ success: false, error: tokenData.error || 'No access_token in response' });
+                        return;
+                    }
+
+                    // 7. Store token in ~/.claude.json mcpOAuth
+                    const claudeJson = readClaudeJson();
+                    const serverConfig = { type: 'http', url: serverUrl, headers: {} };
+                    const key = computeMcpOAuthKey(serverName, serverConfig);
+                    if (!claudeJson.mcpOAuth) claudeJson.mcpOAuth = {};
+                    claudeJson.mcpOAuth[key] = {
+                        serverName,
+                        serverUrl,
+                        clientId: clientInfo.client_id,
+                        clientSecret: clientInfo.client_secret || '',
+                        accessToken: tokenData.access_token,
+                        refreshToken: tokenData.refresh_token || '',
+                        expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
+                        scope: tokenData.scope || 'mcp:connect'
+                    };
+                    writeClaudeJson(claudeJson);
+
+                    // 8. Remove from needs-auth cache
+                    try {
+                        const cachePath = path.join(os.homedir(), '.claude', 'mcp-needs-auth-cache.json');
+                        const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+                        delete cache[serverName];
+                        fs.writeFileSync(cachePath, JSON.stringify(cache));
+                    } catch (_) {}
+
+                    resolve({ success: true });
+                } catch (err) {
+                    server.close();
+                    resolve({ success: false, error: err.message });
+                }
+            });
+
+            server.listen(port, () => {
+                // 5. Open browser to auth URL
+                const authUrl = new URL(metadata.authorization_endpoint);
+                authUrl.searchParams.set('response_type', 'code');
+                authUrl.searchParams.set('client_id', clientInfo.client_id);
+                authUrl.searchParams.set('redirect_uri', redirectUri);
+                authUrl.searchParams.set('state', state);
+                authUrl.searchParams.set('code_challenge', codeChallenge);
+                authUrl.searchParams.set('code_challenge_method', 'S256');
+                authUrl.searchParams.set('scope', 'mcp:connect');
+                shell.openExternal(authUrl.toString());
+            });
+
+            // 10 minute timeout
+            setTimeout(() => { server.close(); resolve({ success: false, error: 'Timeout' }); }, 600000);
+        });
+
+        return result;
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('mcp.revoke', async (event, { serverName, serverUrl }) => {
+    try {
+        const claudeJson = readClaudeJson();
+        const serverConfig = { type: 'http', url: serverUrl, headers: {} };
+        const key = computeMcpOAuthKey(serverName, serverConfig);
+        if (claudeJson.mcpOAuth && claudeJson.mcpOAuth[key]) {
+            delete claudeJson.mcpOAuth[key];
+            writeClaudeJson(claudeJson);
+        }
+        // Add back to needs-auth cache
+        try {
+            const cachePath = path.join(os.homedir(), '.claude', 'mcp-needs-auth-cache.json');
+            let cache = {};
+            try { cache = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (_) {}
+            cache[serverName] = { timestamp: Date.now() };
+            fs.writeFileSync(cachePath, JSON.stringify(cache));
+        } catch (_) {}
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
