@@ -3233,9 +3233,27 @@ ipcMain.handle('updater.download', () => {
 ipcMain.handle('updater.install', () => {
     safelog('[Updater] quitAndInstall requested');
     // macOS: use custom installer to bypass Squirrel.Mac code signature requirement
-    if (process.platform === 'darwin' && _downloadedUpdateFile) {
-        safelog('[Updater] Using custom macOS installer (unsigned app)');
-        if (installMacOSUpdate(_downloadedUpdateFile)) return;
+    if (process.platform === 'darwin') {
+        let zipPath = _downloadedUpdateFile;
+        // Fallback: search electron-updater cache if _downloadedUpdateFile was lost (e.g. after restart)
+        if (!zipPath) {
+            const cacheDirs = [
+                path.join(app.getPath('cache'), 'Claude CLI Terminal', 'pending', 'update.zip'),
+                path.join(app.getPath('userData'), 'pending', 'update.zip'),
+            ];
+            for (const p of cacheDirs) {
+                if (require('fs').existsSync(p)) {
+                    zipPath = p;
+                    safelog('[Updater] Found cached update ZIP at:', zipPath);
+                    break;
+                }
+            }
+        }
+        if (zipPath) {
+            safelog('[Updater] Using custom macOS installer (unsigned app)');
+            if (installMacOSUpdate(zipPath)) return;
+        }
+        safelog('[Updater] No cached update ZIP found, falling through to quitAndInstall');
     }
     try {
         autoUpdater.quitAndInstall(false, true);
