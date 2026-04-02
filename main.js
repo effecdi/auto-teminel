@@ -417,6 +417,7 @@ const pendingAutoFix = new Map();    // projectId -> { label, line }
 // ===================================================================
 let autoVerifyEnabled = true;
 const pendingAutoVerify = new Map(); // projectId -> { type: 'fix'|'task', context }
+let _downloadedUpdateFile = null; // macOS custom installer: path to downloaded zip
 const autoVerifyLastSent = new Map(); // projectId -> timestamp
 const AUTO_VERIFY_COOLDOWN = 10000; // 10s between verifications
 
@@ -987,7 +988,8 @@ app.whenReady().then(() => {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-        safelog(`[Updater] Update downloaded: v${info.version}`);
+        _downloadedUpdateFile = info.downloadedFile || null;
+        safelog(`[Updater] Update downloaded: v${info.version}` + (_downloadedUpdateFile ? `, file: ${_downloadedUpdateFile}` : ''));
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('updater.downloaded', {
                 version: info.version
@@ -999,6 +1001,12 @@ app.whenReady().then(() => {
 
     autoUpdater.on('error', (err) => {
         safelog('[Updater] Error:', err.message, err.stack || '');
+        // macOS unsigned app: Squirrel.Mac code signature check is expected to fail.
+        // Custom installer handles the actual installation — suppress this from UI.
+        if (process.platform === 'darwin' && err.message && err.message.includes('Could not get code signature')) {
+            safelog('[Updater] Suppressing code signature error (unsigned app — custom installer active)');
+            return;
+        }
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('updater.error', {
                 message: err.message
@@ -3165,6 +3173,53 @@ ipcMain.handle('pipeline.submit', async (event, { projectId, text, routeMode }) 
 });
 
 // ===================================================================
+//  macOS Custom Installer (bypass Squirrel.Mac for unsigned apps)
+// ===================================================================
+function installMacOSUpdate(zipPath) {
+    try {
+        const exePath = app.getPath('exe');
+        // exe: /Applications/Claude CLI Terminal.app/Contents/MacOS/Claude CLI Terminal
+        const appBundlePath = exePath.replace(/\/Contents\/MacOS\/.*$/, '');
+        if (!appBundlePath.endsWith('.app')) {
+            safelog('[Updater] Cannot determine .app path from exe:', exePath);
+            return false;
+        }
+        const appDir = path.dirname(appBundlePath);
+        const os = require('os');
+        const tempDir = path.join(os.tmpdir(), `auto-teminel-update-${Date.now()}`);
+        const scriptPath = path.join(os.tmpdir(), `auto-teminel-install-${Date.now()}.sh`);
+
+        const script = `#!/bin/bash
+sleep 2
+mkdir -p "${tempDir}"
+cd "${tempDir}"
+unzip -o "${zipPath}" > /dev/null 2>&1
+NEW_APP=$(find "${tempDir}" -maxdepth 2 -name "*.app" | head -1)
+if [ -z "$NEW_APP" ]; then
+    rm -rf "${tempDir}"
+    exit 1
+fi
+rm -rf "${appBundlePath}"
+cp -R "$NEW_APP" "${appDir}/"
+sleep 0.5
+open "${appBundlePath}"
+rm -rf "${tempDir}"
+rm -f "${scriptPath}"
+`;
+        require('fs').writeFileSync(scriptPath, script, { mode: 0o755 });
+        const { spawn } = require('child_process');
+        const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
+        child.unref();
+        safelog(`[Updater] Custom installer started: ${zipPath} → ${appBundlePath}`);
+        setTimeout(() => app.quit(), 400);
+        return true;
+    } catch (err) {
+        safelog('[Updater] Custom installer error:', err.message);
+        return false;
+    }
+}
+
+// ===================================================================
 //  Auto-Updater IPC handlers
 // ===================================================================
 ipcMain.handle('updater.check', () => {
@@ -3177,6 +3232,11 @@ ipcMain.handle('updater.download', () => {
 
 ipcMain.handle('updater.install', () => {
     safelog('[Updater] quitAndInstall requested');
+    // macOS: use custom installer to bypass Squirrel.Mac code signature requirement
+    if (process.platform === 'darwin' && _downloadedUpdateFile) {
+        safelog('[Updater] Using custom macOS installer (unsigned app)');
+        if (installMacOSUpdate(_downloadedUpdateFile)) return;
+    }
     try {
         autoUpdater.quitAndInstall(false, true);
     } catch (err) {
