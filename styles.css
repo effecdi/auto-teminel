@@ -387,14 +387,15 @@ body {
 .auto-tabs {
     display: flex; border-bottom: 1px solid var(--border-primary);
     flex-shrink: 0; overflow-x: auto; background: var(--bg-primary);
+    scrollbar-width: none;
 }
+.auto-tabs::-webkit-scrollbar { display: none; }
 .auto-tab {
-    flex: 1; padding: 7px 2px; background: transparent;
+    flex: 0 0 auto; padding: 7px 8px; background: transparent;
     border: none; border-bottom: 2px solid transparent;
     color: var(--text-muted); font-size: 8px; font-weight: 600;
     cursor: pointer; transition: all 0.15s; white-space: nowrap;
     text-transform: uppercase; letter-spacing: 0;
-    min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .auto-tab:hover { color: var(--text-secondary); background: rgba(0, 230, 118, 0.04); }
 .auto-tab.active { color: var(--accent-green); border-bottom-color: var(--accent-green); }

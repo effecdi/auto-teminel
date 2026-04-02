@@ -4097,7 +4097,7 @@ function _buildTaskItem(task) {
             <span class="task-item-status ${task.status}">${task.status}</span>
             <div class="task-action-btns">
                 <button class="task-action-btn task-refill-btn" data-task-id="${task.id}" title="프롬프트에 다시 입력">↩</button>
-                <button class="task-action-btn task-copy-btn" data-task-id="${task.id}" title="복사">⧉</button>
+                <button class="task-action-btn task-copy-btn" data-task-id="${task.id}" title="복사">복사</button>
                 ${deleteBtn}
             </div>
         </div>
