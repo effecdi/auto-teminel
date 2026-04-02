@@ -384,10 +384,23 @@ body {
 }
 
 /* ===== Automation Tabs ===== */
+.auto-tabs-wrapper {
+    display: flex; align-items: stretch; flex-shrink: 0;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+}
+.auto-tabs-arrow {
+    flex-shrink: 0; width: 20px; background: transparent;
+    border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 14px; line-height: 1;
+    cursor: pointer; padding: 0; transition: color 0.15s;
+    display: flex; align-items: center; justify-content: center;
+}
+.auto-tabs-arrow:hover { color: var(--accent-green); }
 .auto-tabs {
-    display: flex; border-bottom: 1px solid var(--border-primary);
-    flex-shrink: 0; overflow-x: auto; background: var(--bg-primary);
-    scrollbar-width: none;
+    display: flex; flex: 1; min-width: 0;
+    overflow-x: auto; background: var(--bg-primary);
+    scrollbar-width: none; scroll-behavior: smooth;
 }
 .auto-tabs::-webkit-scrollbar { display: none; }
 .auto-tab {

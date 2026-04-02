@@ -1476,8 +1476,16 @@ function switchAutoTab(tabName) {
 
     const tab = document.querySelector(`.auto-tab[data-tab="${tabName}"]`);
     const content = document.getElementById(`tab-${tabName}`);
-    if (tab) tab.classList.add('active');
+    if (tab) {
+        tab.classList.add('active');
+        tab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }
     if (content) content.classList.add('active');
+}
+
+function scrollAutoTabs(delta) {
+    const el = document.getElementById('autoTabsScroll');
+    if (el) el.scrollLeft += delta;
 }
 
 // ===================================================================
