@@ -140,6 +140,24 @@
         }
         .bc-input:focus { border-color: #5ab4f7; }
         textarea.bc-input { height: 52px; resize: none; font-family: 'Menlo', monospace; }
+        .bc-ai-section { background: linear-gradient(135deg, #0d1f35 0%, #0d1a10 100%); border: 1px solid #1a3a4a; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
+        .bc-ai-title { font-size: 11px; font-weight: 700; color: #5ab4f7; letter-spacing: .5px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+        .bc-ai-title-badge { background: #1a3a4a; color: #4caf81; font-size: 9px; padding: 1px 5px; border-radius: 10px; border: 1px solid #2a5a3a; }
+        .bc-ai-goal { width: 100%; box-sizing: border-box; background: #0a0a0a; border: 1px solid #2a2a2a; color: #e0e0e0; border-radius: 4px; padding: 6px 8px; font-size: 12px; resize: none; height: 54px; font-family: inherit; margin-bottom: 6px; }
+        .bc-ai-goal:focus { border-color: #5ab4f7; outline: none; }
+        .bc-ai-btns { display: flex; gap: 4px; margin-bottom: 6px; }
+        .bc-ai-run-btn { flex: 1; background: linear-gradient(135deg, #1a4a8a, #1a5a3a); color: #fff; border: 1px solid #2a6aaa; border-radius: 4px; padding: 5px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+        .bc-ai-run-btn:hover { filter: brightness(1.2); }
+        .bc-ai-run-btn.running { background: linear-gradient(135deg, #4a1a1a, #5a1a1a); border-color: #aa2a2a; }
+        .bc-ai-steps { max-height: 220px; overflow-y: auto; font-size: 10px; font-family: monospace; }
+        .bc-ai-step { padding: 3px 0; border-bottom: 1px solid #111; display: flex; gap: 6px; align-items: flex-start; }
+        .bc-ai-step-icon { flex-shrink: 0; width: 14px; }
+        .bc-ai-step-text { color: #ccc; word-break: break-all; }
+        .bc-ai-step.ok .bc-ai-step-text { color: #4caf81; }
+        .bc-ai-step.err .bc-ai-step-text { color: #e05555; }
+        .bc-ai-step.thinking .bc-ai-step-text { color: #5ab4f7; }
+        .bc-ai-step.done .bc-ai-step-text { color: #ffcc44; font-weight: 700; }
+        .bc-ai-thumb { width: 100%; border-radius: 3px; margin-top: 3px; border: 1px solid #222; cursor: pointer; }
         details.bc-section > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 4px; user-select: none; }
         details.bc-section > summary::before { content: '▶'; font-size: 8px; color: var(--text-muted); transition: transform .15s; }
         details.bc-section[open] > summary::before { content: '▼'; }
@@ -1544,6 +1562,25 @@
                         </div>
                     </div>
                     <div class="bc-sidebar">
+                        <!-- AI Agent -->
+                        <div class="bc-ai-section">
+                            <div class="bc-ai-title">
+                                🤖 Gemini AI 제어
+                                <span class="bc-ai-title-badge">Vision Agent</span>
+                                <span id="bcAiStepCounter" style="margin-left:auto; color:#555; font-size:9px;"></span>
+                            </div>
+                            <textarea class="bc-ai-goal" id="bcAiGoal" placeholder="자연어로 목표 입력&#10;예: 로그인 버튼 클릭해&#10;예: 검색창에 '노트북' 입력 후 검색해"></textarea>
+                            <div class="bc-ai-btns">
+                                <button class="bc-ai-run-btn" id="bcAiRunBtn" onclick="bcAiToggle()">▶ 시작</button>
+                                <select id="bcAiMaxSteps" style="background:#0a0a0a;border:1px solid #2a2a2a;color:#aaa;border-radius:4px;font-size:10px;padding:0 4px;">
+                                    <option value="5">5 steps</option>
+                                    <option value="10" selected>10 steps</option>
+                                    <option value="15">15 steps</option>
+                                    <option value="20">20 steps</option>
+                                </select>
+                            </div>
+                            <div class="bc-ai-steps" id="bcAiSteps"></div>
+                        </div>
                         <div class="bc-section">
                             <div class="bc-section-title">JS 실행</div>
                             <textarea class="bc-input" id="bcJsInput" placeholder="document.title"></textarea>

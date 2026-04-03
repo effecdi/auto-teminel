@@ -3609,3 +3609,198 @@ ipcMain.handle('browser.send', async (event, { type, ...params }) => {
 ipcMain.handle('browser.isConnected', () => {
     return browserExtSocket?.readyState === 1;
 });
+
+// ====================================================================
+//  Browser AI Agent — Gemini Vision + CDP
+// ====================================================================
+
+let browserAiRunning = false;
+
+function sendBrowserExt(type, params = {}) {
+    return new Promise((resolve) => {
+        if (!browserExtSocket || browserExtSocket.readyState !== 1) {
+            resolve({ error: 'Extension not connected' });
+            return;
+        }
+        const id = ++browserCmdSeq;
+        browserCmdCallbacks.set(id, resolve);
+        browserExtSocket.send(JSON.stringify({ id, type, ...params }));
+        setTimeout(() => {
+            if (browserCmdCallbacks.has(id)) {
+                browserCmdCallbacks.delete(id);
+                resolve({ error: 'Timeout' });
+            }
+        }, 30000);
+    });
+}
+
+function emitAiStep(win, step) {
+    if (win && !win.isDestroyed()) win.webContents.send('browser.aiStep', step);
+}
+
+async function callGeminiVision(apiKey, screenshotBase64, goal, history) {
+    const historyText = history.length > 0
+        ? `Previous steps:\n${history.map((h, i) => `${i+1}. ${h}`).join('\n')}\n\n`
+        : '';
+
+    const prompt = `You are a browser automation agent controlling a real web browser.
+Goal: ${goal}
+
+${historyText}Look at the screenshot and decide the SINGLE NEXT action.
+Respond with ONLY valid JSON (no markdown, no explanation outside JSON):
+{
+  "action": "click" | "type" | "navigate" | "scroll" | "wait" | "done",
+  "x": <number, CSS pixel x for click>,
+  "y": <number, CSS pixel y for click>,
+  "text": "<string for type or navigate url>",
+  "direction": "up" | "down",
+  "amount": <scroll pixels, default 300>,
+  "reason": "<brief why>"
+}
+Rules:
+- click: click at (x,y) coordinates visible in screenshot
+- type: type text into currently focused element (click first if needed)
+- navigate: go to a URL (put URL in "text" field)
+- scroll: scroll the page
+- wait: wait 1 second (use if page is loading)
+- done: task complete or impossible
+If goal is already achieved or cannot be done, use "done".`;
+
+    const body = JSON.stringify({
+        contents: [{
+            role: 'user',
+            parts: [
+                { text: prompt },
+                { inlineData: { mimeType: 'image/png', data: screenshotBase64 } }
+            ]
+        }],
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.1 }
+    });
+
+    return new Promise((resolve, reject) => {
+        const modelId = 'gemini-2.0-flash';
+        const req = require('https').request({
+            hostname: 'generativelanguage.googleapis.com',
+            path: `/v1beta/models/${modelId}:generateContent`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(data);
+                    if (res.statusCode !== 200) {
+                        reject(new Error(`Gemini error ${res.statusCode}: ${parsed.error?.message || data.slice(0, 200)}`));
+                        return;
+                    }
+                    const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    // JSON 추출 (코드블록 안에 있을 수 있음)
+                    const jsonMatch = text.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) { reject(new Error(`No JSON in response: ${text.slice(0, 200)}`)); return; }
+                    resolve(JSON.parse(jsonMatch[0]));
+                } catch (e) {
+                    reject(new Error(`Parse error: ${e.message}`));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+}
+
+ipcMain.handle('browser.aiAgent.start', async (event, { goal, maxSteps = 15 }) => {
+    if (browserAiRunning) return { error: 'Already running' };
+    if (!browserExtSocket || browserExtSocket.readyState !== 1) return { error: 'Extension not connected' };
+
+    const apiKey = store.get('geminiApiKey', '');
+    if (!apiKey) return { error: 'Gemini API Key not set (설정에서 입력하세요)' };
+
+    browserAiRunning = true;
+    const win = mainWindow;
+    const history = [];
+
+    emitAiStep(win, { type: 'start', goal });
+
+    try {
+        for (let step = 1; step <= maxSteps; step++) {
+            if (!browserAiRunning) {
+                emitAiStep(win, { type: 'stopped', step });
+                break;
+            }
+
+            // 스크린샷
+            emitAiStep(win, { type: 'screenshot', step });
+            const ssResult = await sendBrowserExt('screenshot');
+            if (ssResult?.error) { emitAiStep(win, { type: 'error', msg: `Screenshot failed: ${ssResult.error}` }); break; }
+
+            // Gemini 분석
+            emitAiStep(win, { type: 'thinking', step });
+            let action;
+            try {
+                action = await callGeminiVision(apiKey, ssResult.data, goal, history);
+            } catch (e) {
+                emitAiStep(win, { type: 'error', msg: `Gemini error: ${e.message}` });
+                break;
+            }
+
+            emitAiStep(win, { type: 'action', step, action, screenshot: ssResult.data });
+
+            if (action.action === 'done') {
+                emitAiStep(win, { type: 'done', reason: action.reason, step });
+                break;
+            }
+
+            // 액션 실행
+            let execResult;
+            switch (action.action) {
+                case 'click':
+                    execResult = await sendBrowserExt('clickXY', { x: action.x, y: action.y });
+                    history.push(`click at (${action.x},${action.y}) — ${action.reason}`);
+                    await new Promise(r => setTimeout(r, 800));
+                    break;
+                case 'type':
+                    execResult = await sendBrowserExt('typeAtFocus', { text: action.text });
+                    history.push(`type "${action.text}" — ${action.reason}`);
+                    await new Promise(r => setTimeout(r, 300));
+                    break;
+                case 'navigate':
+                    execResult = await sendBrowserExt('navigate', { url: action.text });
+                    history.push(`navigate to ${action.text} — ${action.reason}`);
+                    await new Promise(r => setTimeout(r, 1500));
+                    break;
+                case 'scroll':
+                    execResult = await sendBrowserExt('scroll', {
+                        x: 0,
+                        y: action.direction === 'up' ? -(action.amount || 300) : (action.amount || 300)
+                    });
+                    history.push(`scroll ${action.direction} — ${action.reason}`);
+                    await new Promise(r => setTimeout(r, 500));
+                    break;
+                case 'wait':
+                    history.push(`wait — ${action.reason}`);
+                    await new Promise(r => setTimeout(r, 1000));
+                    break;
+                default:
+                    emitAiStep(win, { type: 'error', msg: `Unknown action: ${action.action}` });
+                    break;
+            }
+
+            if (execResult?.error) {
+                emitAiStep(win, { type: 'error', msg: `Action failed: ${execResult.error}` });
+            }
+
+            if (step === maxSteps) {
+                emitAiStep(win, { type: 'maxSteps', step });
+            }
+        }
+    } finally {
+        browserAiRunning = false;
+    }
+    return { ok: true };
+});
+
+ipcMain.on('browser.aiAgent.stop', () => {
+    browserAiRunning = false;
+});

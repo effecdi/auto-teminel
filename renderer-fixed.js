@@ -5468,6 +5468,118 @@ async function bcFullPage() {
 }
 
 // ===================================================================
+//  Browser AI Agent — Gemini Vision
+// ===================================================================
+
+let bcAiRunning = false;
+
+function bcAiAddStep(icon, text, cls = '', thumbBase64 = null) {
+    const container = document.getElementById('bcAiSteps');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = `bc-ai-step ${cls}`;
+    div.innerHTML = `<span class="bc-ai-step-icon">${icon}</span><span class="bc-ai-step-text">${text.replace(/</g,'&lt;')}</span>`;
+    if (thumbBase64) {
+        const img = document.createElement('img');
+        img.className = 'bc-ai-thumb';
+        img.src = 'data:image/png;base64,' + thumbBase64;
+        img.onclick = () => {
+            const bcImg = document.getElementById('bcScreenshotImg');
+            const ph = document.getElementById('bcPlaceholder');
+            if (bcImg) { bcImg.src = img.src; bcImg.style.display = ''; if (ph) ph.style.display = 'none'; }
+        };
+        div.appendChild(img);
+    }
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function bcAiSetRunning(running) {
+    bcAiRunning = running;
+    const btn = document.getElementById('bcAiRunBtn');
+    if (btn) {
+        btn.textContent = running ? '⏹ 중지' : '▶ 시작';
+        btn.classList.toggle('running', running);
+    }
+}
+
+async function bcAiToggle() {
+    if (bcAiRunning) {
+        ipcRenderer.send('browser.aiAgent.stop');
+        bcAiSetRunning(false);
+        return;
+    }
+    if (!bcExtConnected) { showToast('Extension not connected', 'error'); return; }
+    const goal = document.getElementById('bcAiGoal')?.value?.trim();
+    if (!goal) { showToast('목표를 입력하세요', 'error'); return; }
+    const maxSteps = parseInt(document.getElementById('bcAiMaxSteps')?.value || '10');
+
+    // 스텝 초기화
+    const stepsEl = document.getElementById('bcAiSteps');
+    if (stepsEl) stepsEl.innerHTML = '';
+    document.getElementById('bcAiStepCounter').textContent = '';
+
+    bcAiSetRunning(true);
+    const result = await ipcRenderer.invoke('browser.aiAgent.start', { goal, maxSteps });
+    if (result?.error) {
+        bcAiAddStep('❌', result.error, 'err');
+        showToast(result.error, 'error');
+    }
+    bcAiSetRunning(false);
+}
+
+ipcRenderer.on('browser.aiStep', (event, step) => {
+    const counter = document.getElementById('bcAiStepCounter');
+    switch (step.type) {
+        case 'start':
+            bcAiAddStep('🎯', `목표: ${step.goal}`, 'ok');
+            break;
+        case 'screenshot':
+            if (counter) counter.textContent = `Step ${step.step}`;
+            bcAiAddStep('📸', `Step ${step.step} — 화면 캡처 중...`, 'thinking');
+            break;
+        case 'thinking':
+            bcAiAddStep('🧠', `Gemini 분석 중...`, 'thinking');
+            break;
+        case 'action': {
+            const a = step.action;
+            const actionDesc = {
+                click: `클릭 (${a.x}, ${a.y})`,
+                type: `입력: "${a.text}"`,
+                navigate: `이동: ${a.text}`,
+                scroll: `스크롤 ${a.direction} ${a.amount || 300}px`,
+                wait: `대기 중...`,
+            }[a.action] || a.action;
+            bcAiAddStep('⚡', `${actionDesc} — ${a.reason || ''}`, '', step.screenshot);
+            // 스크린샷도 메인 뷰에 반영
+            const bcImg = document.getElementById('bcScreenshotImg');
+            const ph = document.getElementById('bcPlaceholder');
+            if (bcImg && step.screenshot) { bcImg.src = 'data:image/png;base64,' + step.screenshot; bcImg.style.display = ''; if (ph) ph.style.display = 'none'; }
+            break;
+        }
+        case 'done':
+            bcAiAddStep('✅', `완료 (${step.step} steps) — ${step.reason || ''}`, 'done');
+            if (counter) counter.textContent = `✓ ${step.step} steps`;
+            bcAiSetRunning(false);
+            showToast('AI 작업 완료', 'success');
+            break;
+        case 'stopped':
+            bcAiAddStep('⏹', '사용자에 의해 중지됨', '');
+            bcAiSetRunning(false);
+            break;
+        case 'maxSteps':
+            bcAiAddStep('⚠', `최대 스텝 도달 (${step.step})`, 'err');
+            bcAiSetRunning(false);
+            break;
+        case 'error':
+            bcAiAddStep('❌', step.msg, 'err');
+            bcAiSetRunning(false);
+            showToast(step.msg, 'error');
+            break;
+    }
+});
+
+// ===================================================================
 //  Model Selector
 // ===================================================================
 

@@ -66,6 +66,15 @@ async function execute(expression) {
   return r.result.value;
 }
 
+async function clickXY(x, y) {
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+}
+
+async function typeAtFocus(text) {
+  await cdp('Input.insertText', { text });
+}
+
 async function clickSelector(selector) {
   const pos = await execute(`
     (function() {
@@ -159,6 +168,14 @@ async function handleCommand(cmd) {
         res.attached = attachedTabId != null;
         res.tabId = attachedTabId;
         res.wsConnected = ws?.readyState === WebSocket.OPEN;
+        break;
+      case 'clickXY':
+        await clickXY(cmd.x, cmd.y);
+        res.success = true;
+        break;
+      case 'typeAtFocus':
+        await typeAtFocus(cmd.text);
+        res.success = true;
         break;
       // ---- GUI 심화 ----
       case 'hover':
