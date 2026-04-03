@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Browser Control</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <span class="title">Browser Control</span>
+      <div class="status-row">
+        <span class="badge" id="badge-debugger">● Debugger</span>
+        <span class="badge" id="badge-ws">● WS</span>
+      </div>
+    </header>
+
+    <!-- WebSocket 연결 -->
+    <section class="card">
+      <div class="card-title">WebSocket 서버 연결</div>
+      <div class="row">
+        <input id="ws-url" type="text" value="ws://localhost:9999" placeholder="ws://localhost:9999" />
+        <button id="btn-ws-connect">연결</button>
+      </div>
+    </section>
+
+    <!-- Debugger -->
+    <section class="card">
+      <div class="card-title">CDP Debugger</div>
+      <div class="row">
+        <button id="btn-attach" class="full">현재 탭 Attach</button>
+        <button id="btn-detach" class="full secondary">Detach</button>
+      </div>
+    </section>
+
+    <!-- 스크린샷 -->
+    <section class="card">
+      <div class="card-title">스크린샷</div>
+      <button id="btn-screenshot" class="full">캡처</button>
+      <div id="screenshot-wrap">
+        <img id="screenshot-img" src="" alt="" />
+      </div>
+    </section>
+
+    <!-- 네비게이션 -->
+    <section class="card">
+      <div class="card-title">네비게이션</div>
+      <div class="row">
+        <input id="nav-url" type="text" placeholder="https://..." />
+        <button id="btn-navigate">이동</button>
+      </div>
+    </section>
+
+    <!-- JS 실행 -->
+    <section class="card">
+      <div class="card-title">JS 실행</div>
+      <textarea id="js-input" placeholder="document.title"></textarea>
+      <button id="btn-execute" class="full">실행</button>
+      <pre id="js-result"></pre>
+    </section>
+
+    <!-- 클릭 -->
+    <section class="card">
+      <div class="card-title">클릭 / 타입</div>
+      <div class="row">
+        <input id="click-selector" type="text" placeholder="CSS selector" />
+        <button id="btn-click">클릭</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input id="type-text" type="text" placeholder="입력할 텍스트" />
+        <button id="btn-type">입력</button>
+      </div>
+    </section>
+
+    <div id="toast"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

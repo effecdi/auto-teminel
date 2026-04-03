@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Auto-Teminel Browser Control",
+  "version": "1.0.0",
+  "description": "CDP 기반 브라우저 자동화 — auto-teminel 연동",
+  "permissions": [
+    "debugger",
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Browser Control"
+  }
+}
