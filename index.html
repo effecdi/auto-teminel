@@ -140,6 +140,14 @@
         }
         .bc-input:focus { border-color: #5ab4f7; }
         textarea.bc-input { height: 52px; resize: none; font-family: 'Menlo', monospace; }
+        details.bc-section > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 4px; user-select: none; }
+        details.bc-section > summary::before { content: '▶'; font-size: 8px; color: var(--text-muted); transition: transform .15s; }
+        details.bc-section[open] > summary::before { content: '▼'; }
+        .bc-result-box { margin-top: 4px; padding: 4px 6px; background: #0d0d0d; border-radius: 4px; font-size: 10px; font-family: monospace; color: #9ccc65; word-break: break-all; max-height: 120px; overflow-y: auto; }
+        .bc-capture-bar { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
+        .bc-capture-indicator { width: 7px; height: 7px; border-radius: 50%; background: #555; flex-shrink: 0; }
+        .bc-capture-indicator.on { background: #e05555; box-shadow: 0 0 4px #e05555; animation: bcPulse 1s infinite; }
+        @keyframes bcPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
         .bc-log {
             flex: 1; overflow-y: auto; padding: 6px;
             font-size: 11px; font-family: 'Menlo', monospace;
@@ -1544,19 +1552,109 @@
                             </div>
                             <div id="bcJsResult" style="display:none; margin-top:4px; padding:4px 6px; background:#0d0d0d; border-radius:4px; font-size:10px; font-family:monospace; color:#9ccc65; word-break:break-all;"></div>
                         </div>
-                        <div class="bc-section">
-                            <div class="bc-section-title">클릭 / 입력</div>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">클릭 / 입력</summary>
+                            <div style="padding:6px 0 0;">
                             <div class="bc-row">
                                 <input class="bc-input" id="bcSelectorInput" type="text" placeholder="CSS selector">
                             </div>
                             <div class="bc-row" style="margin-top:4px;">
                                 <button class="bc-btn" style="flex:1;" onclick="bcClick()">클릭</button>
+                                <button class="bc-btn" onclick="bcDoubleClick()">더블클릭</button>
+                                <button class="bc-btn" onclick="bcRightClick()">우클릭</button>
+                                <button class="bc-btn" onclick="bcHover()">Hover</button>
                             </div>
                             <div class="bc-row" style="margin-top:4px;">
                                 <input class="bc-input" id="bcTypeInput" type="text" placeholder="입력할 텍스트">
                                 <button class="bc-btn" onclick="bcType()">입력</button>
                             </div>
-                        </div>
+                            <div class="bc-row" style="margin-top:4px;">
+                                <input class="bc-input" id="bcHighlightSel" type="text" placeholder="하이라이트할 selector">
+                                <button class="bc-btn" onclick="bcHighlight()">하이라이트</button>
+                            </div>
+                            <div class="bc-row" style="margin-top:4px;">
+                                <input class="bc-input" id="bcDragFrom" type="text" placeholder="드래그 from">
+                                <input class="bc-input" id="bcDragTo" type="text" placeholder="to">
+                                <button class="bc-btn" onclick="bcDrag()">드래그</button>
+                            </div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">키보드 단축키</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-row">
+                                <input class="bc-input" id="bcKeyCombo" type="text" placeholder="ctrl+a, cmd+shift+p, F5 ...">
+                                <button class="bc-btn primary" onclick="bcKeyShortcut()">전송</button>
+                            </div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">요소 탐색</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-row">
+                                <input class="bc-input" id="bcFindText" type="text" placeholder="텍스트로 요소 찾기">
+                                <button class="bc-btn primary" onclick="bcFindByText()">찾기</button>
+                            </div>
+                            <div class="bc-row" style="margin-top:4px;">
+                                <input class="bc-input" id="bcFindRole" type="text" placeholder="ARIA role (button, link, ...)">
+                                <button class="bc-btn" onclick="bcFindByRole()">Role 탐색</button>
+                            </div>
+                            <div class="bc-row" style="margin-top:4px;">
+                                <button class="bc-btn" style="flex:1;" onclick="bcListInteractive()">인터랙티브 요소 목록</button>
+                            </div>
+                            <div id="bcFindResult" class="bc-result-box" style="display:none;"></div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">콘솔 캡처</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-capture-bar">
+                                <div class="bc-capture-indicator" id="bcConsoleIndicator"></div>
+                                <span id="bcConsoleStatus" style="font-size:10px;color:var(--text-muted);">중지됨</span>
+                                <button class="bc-btn" style="margin-left:auto;" id="bcConsoleToggleBtn" onclick="bcToggleConsole()">시작</button>
+                            </div>
+                            <div id="bcConsoleLog" class="bc-result-box" style="display:none; max-height:160px;"></div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">네트워크 캡처</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-capture-bar">
+                                <div class="bc-capture-indicator" id="bcNetIndicator"></div>
+                                <span id="bcNetStatus" style="font-size:10px;color:var(--text-muted);">중지됨</span>
+                                <button class="bc-btn" style="margin-left:auto;" id="bcNetToggleBtn" onclick="bcToggleNetwork()">시작</button>
+                                <button class="bc-btn" onclick="bcClearNetwork()">Clear</button>
+                            </div>
+                            <div id="bcNetLog" class="bc-result-box" style="display:none; max-height:200px;"></div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">스토리지</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-row">
+                                <button class="bc-btn" style="flex:1;" onclick="bcGetLocalStorage()">localStorage</button>
+                                <button class="bc-btn" style="flex:1;" onclick="bcGetSessionStorage()">sessionStorage</button>
+                                <button class="bc-btn" style="flex:1;" onclick="bcGetCookies()">Cookies</button>
+                            </div>
+                            <div id="bcStorageResult" class="bc-result-box" style="display:none;"></div>
+                            <div class="bc-row" style="margin-top:6px;">
+                                <input class="bc-input" id="bcStorageKey" type="text" placeholder="key">
+                                <input class="bc-input" id="bcStorageVal" type="text" placeholder="value">
+                                <button class="bc-btn" onclick="bcSetLocalStorage()">Set</button>
+                                <button class="bc-btn" onclick="bcRemoveLocalStorage()">Del</button>
+                            </div>
+                            </div>
+                        </details>
+                        <details class="bc-section">
+                            <summary class="bc-section-title">성능 메트릭</summary>
+                            <div style="padding:6px 0 0;">
+                            <div class="bc-row">
+                                <button class="bc-btn" style="flex:1;" onclick="bcGetPerf()">메트릭 조회</button>
+                                <button class="bc-btn" style="flex:1;" onclick="bcFullPage()">풀페이지 스크린샷</button>
+                            </div>
+                            <div id="bcPerfResult" class="bc-result-box" style="display:none;"></div>
+                            </div>
+                        </details>
                         <div class="bc-section-title" style="padding:6px 10px 2px; font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;">Log</div>
                         <div class="bc-log" id="bcLog"></div>
                     </div>

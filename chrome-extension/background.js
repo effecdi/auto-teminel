@@ -160,6 +160,99 @@ async function handleCommand(cmd) {
         res.tabId = attachedTabId;
         res.wsConnected = ws?.readyState === WebSocket.OPEN;
         break;
+      // ---- GUI 심화 ----
+      case 'hover':
+        await hover(cmd.selector);
+        res.success = true;
+        break;
+      case 'rightClick':
+        await rightClick(cmd.selector);
+        res.success = true;
+        break;
+      case 'doubleClick':
+        await doubleClick(cmd.selector);
+        res.success = true;
+        break;
+      case 'drag':
+        await drag(cmd.from, cmd.to);
+        res.success = true;
+        break;
+      case 'smoothMove':
+        await smoothMove(cmd.x, cmd.y);
+        res.success = true;
+        break;
+      case 'keyShortcut':
+        await keyShortcut(cmd.combo);
+        res.success = true;
+        break;
+      // ---- 요소 탐색 ----
+      case 'findByText':
+        res.results = await findByText(cmd.text);
+        break;
+      case 'listInteractive':
+        res.results = await listInteractive();
+        break;
+      case 'findByRole':
+        res.results = await findByRole(cmd.role);
+        break;
+      case 'highlight':
+        res.result = await highlight(cmd.selector);
+        break;
+      // ---- 콘솔 ----
+      case 'startConsoleCapture':
+        await startConsoleCapture();
+        res.success = true;
+        break;
+      case 'stopConsoleCapture':
+        await stopConsoleCapture();
+        res.success = true;
+        break;
+      // ---- 네트워크 ----
+      case 'startNetworkCapture':
+        await startNetworkCapture();
+        res.success = true;
+        break;
+      case 'stopNetworkCapture':
+        await stopNetworkCapture();
+        res.success = true;
+        break;
+      case 'getResponseBody':
+        res.body = await getResponseBody(cmd.requestId);
+        break;
+      // ---- 스토리지 ----
+      case 'getCookies':
+        res.cookies = await getCookies(cmd.url);
+        break;
+      case 'setCookie':
+        await setCookie(cmd.name, cmd.value, cmd.domain, cmd.path);
+        res.success = true;
+        break;
+      case 'getLocalStorage':
+        res.data = await getLocalStorage();
+        break;
+      case 'setLocalStorage':
+        await setLocalStorageItem(cmd.key, cmd.value);
+        res.success = true;
+        break;
+      case 'removeLocalStorage':
+        await removeLocalStorageItem(cmd.key);
+        res.success = true;
+        break;
+      case 'getSessionStorage':
+        res.data = await getSessionStorage();
+        break;
+      case 'clearLocalStorage':
+        await clearLocalStorage();
+        res.success = true;
+        break;
+      // ---- 성능 ----
+      case 'getPerformanceMetrics':
+        res.metrics = await getPerformanceMetrics();
+        break;
+      // ---- 풀페이지 스크린샷 ----
+      case 'fullPageScreenshot':
+        res.data = await fullPageScreenshot();
+        break;
       default:
         res.error = `Unknown command: ${cmd.type}`;
     }
@@ -246,3 +339,229 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === attachedTabId) attachedTabId = null;
 });
+
+// ====================== CDP Push 이벤트 → WS 포워딩 ======================
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (source.tabId !== attachedTabId) return;
+  wsSend({ type: 'cdp-event', method, params });
+});
+
+// ====================== GUI 심화 ======================
+
+async function getPos(selector) {
+  const pos = await execute(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()
+  `);
+  if (!pos) throw new Error(`Element not found: ${selector}`);
+  return pos;
+}
+
+async function hover(selector) {
+  const pos = await getPos(selector);
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...pos });
+}
+
+async function rightClick(selector) {
+  const pos = await getPos(selector);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...pos, button: 'right', clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', ...pos, button: 'right', clickCount: 1 });
+}
+
+async function doubleClick(selector) {
+  const pos = await getPos(selector);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...pos, button: 'left', clickCount: 2 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', ...pos, button: 'left', clickCount: 2 });
+}
+
+async function drag(fromSel, toSel) {
+  const from = await getPos(fromSel);
+  const to = await getPos(toSel);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...from, button: 'left', clickCount: 1 });
+  // 부드러운 중간 경로 (5 steps)
+  for (let i = 1; i <= 5; i++) {
+    const x = from.x + (to.x - from.x) * (i / 5);
+    const y = from.y + (to.y - from.y) * (i / 5);
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left' });
+    await new Promise(r => setTimeout(r, 30));
+  }
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', ...to, button: 'left', clickCount: 1 });
+}
+
+async function smoothMove(x, y) {
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+}
+
+async function keyShortcut(combo) {
+  // combo: "ctrl+a", "cmd+shift+p", "F5" 등
+  const parts = combo.toLowerCase().split('+');
+  const key = parts[parts.length - 1];
+  let modifiers = 0;
+  if (parts.includes('alt')) modifiers |= 1;
+  if (parts.includes('ctrl') || parts.includes('control')) modifiers |= 2;
+  if (parts.includes('meta') || parts.includes('cmd') || parts.includes('command')) modifiers |= 4;
+  if (parts.includes('shift')) modifiers |= 8;
+  const keyMap = { 'enter': 'Return', 'esc': 'Escape', 'escape': 'Escape', 'tab': 'Tab', 'backspace': 'BackSpace', 'delete': 'Delete', 'space': 'Space', 'up': 'ArrowUp', 'down': 'ArrowDown', 'left': 'ArrowLeft', 'right': 'ArrowRight' };
+  const cdpKey = keyMap[key] || (key.length === 1 ? key : key.charAt(0).toUpperCase() + key.slice(1));
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: cdpKey, modifiers });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: cdpKey, modifiers });
+}
+
+// ====================== 요소 탐색 ======================
+
+async function findByText(text) {
+  return execute(`
+    (function() {
+      const q = ${JSON.stringify(text.toLowerCase())};
+      const results = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const seen = new Set();
+      let node;
+      while ((node = walker.nextNode())) {
+        if (!node.textContent.trim().toLowerCase().includes(q)) continue;
+        const el = node.parentElement;
+        if (!el || seen.has(el)) continue;
+        seen.add(el);
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        results.push({ tag: el.tagName.toLowerCase(), text: el.textContent.trim().slice(0, 80), x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) });
+        if (results.length >= 20) break;
+      }
+      return results;
+    })()
+  `);
+}
+
+async function listInteractive() {
+  return execute(`
+    (function() {
+      const sel = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [tabindex]:not([tabindex="-1"])';
+      return Array.from(document.querySelectorAll(sel)).slice(0, 50).map(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return null;
+        return { tag: el.tagName.toLowerCase(), type: el.type || el.getAttribute('role') || '', text: (el.textContent || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 60), id: el.id || '', x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+      }).filter(Boolean);
+    })()
+  `);
+}
+
+async function findByRole(role) {
+  return execute(`
+    (function() {
+      const implicit = ${JSON.stringify({ a: 'link', button: 'button', input: 'textbox', select: 'combobox', textarea: 'textbox', h1: 'heading', h2: 'heading', h3: 'heading', nav: 'navigation', main: 'main', header: 'banner', footer: 'contentinfo', form: 'form' })};
+      const r = ${JSON.stringify(role.toLowerCase())};
+      return Array.from(document.querySelectorAll('*')).filter(el => {
+        const aria = el.getAttribute('role')?.toLowerCase();
+        const imp = implicit[el.tagName.toLowerCase()];
+        return aria === r || imp === r;
+      }).slice(0, 30).map(el => {
+        const rect = el.getBoundingClientRect();
+        return { tag: el.tagName.toLowerCase(), text: (el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 60), x: Math.round(rect.left + rect.width/2), y: Math.round(rect.top + rect.height/2) };
+      });
+    })()
+  `);
+}
+
+async function highlight(selector) {
+  return execute(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Not found';
+      const prev = el.style.outline;
+      el.style.outline = '3px solid #ff5722';
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { el.style.outline = prev; }, 2000);
+      return el.tagName + ' ' + el.textContent.trim().slice(0, 50);
+    })()
+  `);
+}
+
+// ====================== 콘솔 캡처 ======================
+
+async function startConsoleCapture() {
+  await cdp('Runtime.enable');
+  await cdp('Log.enable');
+}
+
+async function stopConsoleCapture() {
+  await cdp('Runtime.disable');
+  await cdp('Log.disable');
+}
+
+// ====================== 네트워크 캡처 ======================
+
+async function startNetworkCapture() {
+  await cdp('Network.enable');
+}
+
+async function stopNetworkCapture() {
+  await cdp('Network.disable');
+}
+
+async function getResponseBody(requestId) {
+  try {
+    return await cdp('Network.getResponseBody', { requestId });
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// ====================== 스토리지 ======================
+
+async function getCookies(url) {
+  const r = await cdp('Network.getCookies', url ? { urls: [url] } : {});
+  return r.cookies;
+}
+
+async function setCookie(name, value, domain, path) {
+  await cdp('Network.setCookie', { name, value, domain, path: path || '/' });
+}
+
+async function getLocalStorage() {
+  const raw = await execute(`JSON.stringify(Object.fromEntries(Object.entries(localStorage)))`);
+  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+}
+
+async function setLocalStorageItem(key, value) {
+  return execute(`localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)}); 'ok'`);
+}
+
+async function removeLocalStorageItem(key) {
+  return execute(`localStorage.removeItem(${JSON.stringify(key)}); 'ok'`);
+}
+
+async function getSessionStorage() {
+  const raw = await execute(`JSON.stringify(Object.fromEntries(Object.entries(sessionStorage)))`);
+  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+}
+
+async function clearLocalStorage() {
+  return execute(`localStorage.clear(); 'ok'`);
+}
+
+// ====================== 성능 ======================
+
+async function getPerformanceMetrics() {
+  await cdp('Performance.enable');
+  const r = await cdp('Performance.getMetrics');
+  return r.metrics;
+}
+
+// ====================== 풀페이지 스크린샷 ======================
+
+async function fullPageScreenshot() {
+  const layout = await cdp('Page.getLayoutMetrics');
+  const { width, height } = layout.contentSize;
+  const w = Math.ceil(width);
+  const h = Math.min(Math.ceil(height), 16000); // 16000px 제한
+  await cdp('Emulation.setVisibleSize', { width: w, height: h });
+  const r = await cdp('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: w, height: h, scale: 1 } });
+  // 뷰포트 복원
+  await cdp('Emulation.setVisibleSize', { width: 1280, height: 800 });
+  return r.data;
+}

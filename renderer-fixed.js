@@ -67,6 +67,8 @@ const ccStateMap = new Map();        // projectId → { url, task, logsHTML, scr
 let browserMode = false;             // true = Browser panel visible
 let bcExtConnected = false;          // 익스텐션 연결 여부
 const bcStateMap = new Map();        // projectId → { screenshotSrc, url, log[] }
+let bcConsoleCaptured = false;       // 콘솔 캡처 중
+let bcNetworkCaptured = false;       // 네트워크 캡처 중
 
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
@@ -5143,6 +5145,327 @@ ipcRenderer.on('browser.extConnected', (event, connected) => {
     bcUpdateStatus(connected);
     if (browserMode) bcLog(connected ? '✓ Extension connected' : '⚠ Extension disconnected', connected ? 'ok' : 'err');
 });
+
+// IPC: CDP push 이벤트 (콘솔/네트워크 스트리밍)
+ipcRenderer.on('browser.response', (event, msg) => {
+    if (msg?.type !== 'cdp-event') return; // 명령 응답은 무시
+    const method = msg.method;
+    const params = msg.params || {};
+
+    // 콘솔 캡처
+    if (method === 'Runtime.consoleAPICalled' || method === 'Log.entryAdded') {
+        const el = document.getElementById('bcConsoleLog');
+        if (!el) return;
+        el.style.display = 'block';
+        let text, level;
+        if (method === 'Runtime.consoleAPICalled') {
+            level = params.type || 'log';
+            const args = (params.args || []).map(a => a.value !== undefined ? String(a.value) : a.description || JSON.stringify(a)).join(' ');
+            text = `[${level}] ${args}`;
+        } else {
+            const e = params.entry || {};
+            level = e.level || 'log';
+            text = `[${level}] ${e.text || ''}`;
+        }
+        const div = document.createElement('div');
+        div.style.cssText = `padding:1px 0; border-bottom:1px solid #1a1a1a; color:${level==='error'?'#e05555':level==='warn'?'#ffcc44':'#9ccc65'};`;
+        div.textContent = `${new Date().toLocaleTimeString()} ${text}`;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+        while (el.children.length > 200) el.removeChild(el.firstChild);
+        return;
+    }
+
+    // 네트워크 캡처
+    if (method === 'Network.requestWillBeSent') {
+        const el = document.getElementById('bcNetLog');
+        if (!el) return;
+        el.style.display = 'block';
+        const req = params.request || {};
+        const div = document.createElement('div');
+        div.dataset.reqId = params.requestId;
+        div.style.cssText = 'padding:2px 0; border-bottom:1px solid #1a1a1a; color:#5ab4f7; cursor:pointer;';
+        div.title = req.url;
+        div.textContent = `→ ${req.method} ${req.url?.slice(0, 80)}`;
+        div.onclick = () => bcShowNetDetails(div);
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+        while (el.children.length > 300) el.removeChild(el.firstChild);
+        return;
+    }
+    if (method === 'Network.responseReceived') {
+        const el = document.getElementById('bcNetLog');
+        if (!el) return;
+        const resp = params.response || {};
+        const status = resp.status;
+        // 기존 요청 행 업데이트
+        const existing = el.querySelector(`[data-req-id="${params.requestId}"]`);
+        if (existing) {
+            existing.dataset.respStatus = status;
+            existing.dataset.mimeType = resp.mimeType || '';
+            existing.style.color = status >= 400 ? '#e05555' : status >= 300 ? '#ffcc44' : '#4caf81';
+            existing.textContent = `${status} ${resp.mimeType?.split(';')[0] || ''} ${existing.title?.slice(0, 70)}`;
+        }
+        return;
+    }
+});
+
+// ===================================================================
+//  Browser Control — GUI 심화
+// ===================================================================
+
+async function bcHover() {
+    const selector = document.getElementById('bcSelectorInput')?.value?.trim();
+    if (!selector) return;
+    bcLog(`Hover: ${selector}`, 'info');
+    const r = await bcSend('hover', { selector });
+    if (r && !r.error) bcLog('✓ Hovered', 'ok');
+}
+
+async function bcRightClick() {
+    const selector = document.getElementById('bcSelectorInput')?.value?.trim();
+    if (!selector) return;
+    bcLog(`RightClick: ${selector}`, 'info');
+    const r = await bcSend('rightClick', { selector });
+    if (r && !r.error) bcLog('✓ Right-clicked', 'ok');
+}
+
+async function bcDoubleClick() {
+    const selector = document.getElementById('bcSelectorInput')?.value?.trim();
+    if (!selector) return;
+    bcLog(`DoubleClick: ${selector}`, 'info');
+    const r = await bcSend('doubleClick', { selector });
+    if (r && !r.error) bcLog('✓ Double-clicked', 'ok');
+}
+
+async function bcDrag() {
+    const from = document.getElementById('bcDragFrom')?.value?.trim();
+    const to = document.getElementById('bcDragTo')?.value?.trim();
+    if (!from || !to) return;
+    bcLog(`Drag: ${from} → ${to}`, 'info');
+    const r = await bcSend('drag', { from, to });
+    if (r && !r.error) bcLog('✓ Dragged', 'ok');
+}
+
+async function bcHighlight() {
+    const selector = document.getElementById('bcHighlightSel')?.value?.trim();
+    if (!selector) return;
+    bcLog(`Highlight: ${selector}`, 'info');
+    const r = await bcSend('highlight', { selector });
+    if (r && !r.error) bcLog(`✓ ${r.result}`, 'ok');
+}
+
+async function bcKeyShortcut() {
+    const combo = document.getElementById('bcKeyCombo')?.value?.trim();
+    if (!combo) return;
+    bcLog(`Key: ${combo}`, 'info');
+    const r = await bcSend('keyShortcut', { combo });
+    if (r && !r.error) bcLog('✓ Key sent', 'ok');
+}
+
+// ===================================================================
+//  Browser Control — 요소 탐색
+// ===================================================================
+
+function bcShowFindResult(results) {
+    const el = document.getElementById('bcFindResult');
+    if (!el) return;
+    if (!results || results.length === 0) {
+        el.style.display = 'block';
+        el.textContent = '(결과 없음)';
+        return;
+    }
+    el.style.display = 'block';
+    el.innerHTML = results.map((r, i) =>
+        `<div style="padding:2px 0; border-bottom:1px solid #1a1a1a; cursor:pointer;" onclick="bcLog('${i+1}. <${r.tag}> ${(r.text||'').replace(/'/g,''').slice(0,40)}','info')">${i+1}. &lt;${r.tag}&gt; ${(r.text||'(no text)').slice(0,50)} <span style="color:#555;">(${r.x},${r.y})</span></div>`
+    ).join('');
+}
+
+async function bcFindByText() {
+    const text = document.getElementById('bcFindText')?.value?.trim();
+    if (!text) return;
+    bcLog(`FindByText: "${text}"`, 'info');
+    const r = await bcSend('findByText', { text });
+    if (!r || r.error) return;
+    bcLog(`✓ ${r.results?.length || 0}개 발견`, 'ok');
+    bcShowFindResult(r.results);
+}
+
+async function bcFindByRole() {
+    const role = document.getElementById('bcFindRole')?.value?.trim();
+    if (!role) return;
+    bcLog(`FindByRole: "${role}"`, 'info');
+    const r = await bcSend('findByRole', { role });
+    if (!r || r.error) return;
+    bcLog(`✓ ${r.results?.length || 0}개 발견`, 'ok');
+    bcShowFindResult(r.results);
+}
+
+async function bcListInteractive() {
+    bcLog('Listing interactive elements...', 'info');
+    const r = await bcSend('listInteractive');
+    if (!r || r.error) return;
+    bcLog(`✓ ${r.results?.length || 0}개`, 'ok');
+    bcShowFindResult(r.results);
+}
+
+// ===================================================================
+//  Browser Control — 콘솔
+// ===================================================================
+
+async function bcToggleConsole() {
+    if (!bcConsoleCaptured) {
+        const r = await bcSend('startConsoleCapture');
+        if (!r || r.error) return;
+        bcConsoleCaptured = true;
+        const indicator = document.getElementById('bcConsoleIndicator');
+        const status = document.getElementById('bcConsoleStatus');
+        const btn = document.getElementById('bcConsoleToggleBtn');
+        if (indicator) indicator.classList.add('on');
+        if (status) status.textContent = '캡처 중...';
+        if (btn) btn.textContent = '중지';
+        bcLog('✓ Console capture started', 'ok');
+    } else {
+        const r = await bcSend('stopConsoleCapture');
+        bcConsoleCaptured = false;
+        const indicator = document.getElementById('bcConsoleIndicator');
+        const status = document.getElementById('bcConsoleStatus');
+        const btn = document.getElementById('bcConsoleToggleBtn');
+        if (indicator) indicator.classList.remove('on');
+        if (status) status.textContent = '중지됨';
+        if (btn) btn.textContent = '시작';
+        bcLog('Console capture stopped', 'info');
+    }
+}
+
+// ===================================================================
+//  Browser Control — 네트워크
+// ===================================================================
+
+async function bcToggleNetwork() {
+    if (!bcNetworkCaptured) {
+        const r = await bcSend('startNetworkCapture');
+        if (!r || r.error) return;
+        bcNetworkCaptured = true;
+        const indicator = document.getElementById('bcNetIndicator');
+        const status = document.getElementById('bcNetStatus');
+        const btn = document.getElementById('bcNetToggleBtn');
+        if (indicator) indicator.classList.add('on');
+        if (status) status.textContent = '캡처 중...';
+        if (btn) btn.textContent = '중지';
+        const log = document.getElementById('bcNetLog');
+        if (log) log.style.display = 'block';
+        bcLog('✓ Network capture started', 'ok');
+    } else {
+        await bcSend('stopNetworkCapture');
+        bcNetworkCaptured = false;
+        const indicator = document.getElementById('bcNetIndicator');
+        const status = document.getElementById('bcNetStatus');
+        const btn = document.getElementById('bcNetToggleBtn');
+        if (indicator) indicator.classList.remove('on');
+        if (status) status.textContent = '중지됨';
+        if (btn) btn.textContent = '시작';
+        bcLog('Network capture stopped', 'info');
+    }
+}
+
+function bcClearNetwork() {
+    const el = document.getElementById('bcNetLog');
+    if (el) el.innerHTML = '';
+}
+
+async function bcShowNetDetails(div) {
+    const reqId = div.dataset.reqId;
+    if (!reqId) return;
+    const r = await bcSend('getResponseBody', { requestId: reqId });
+    if (!r || r.error) return;
+    const body = r.body;
+    const text = body?.body ? (body.base64Encoded ? atob(body.body).slice(0, 500) : body.body.slice(0, 500)) : '(no body)';
+    bcLog(`Body[${reqId.slice(-6)}]: ${text}`, 'info');
+}
+
+// ===================================================================
+//  Browser Control — 스토리지
+// ===================================================================
+
+function bcShowStorage(data) {
+    const el = document.getElementById('bcStorageResult');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = JSON.stringify(data, null, 2);
+}
+
+async function bcGetLocalStorage() {
+    bcLog('Getting localStorage...', 'info');
+    const r = await bcSend('getLocalStorage');
+    if (!r || r.error) return;
+    bcLog(`✓ ${Object.keys(r.data || {}).length}개 항목`, 'ok');
+    bcShowStorage(r.data);
+}
+
+async function bcGetSessionStorage() {
+    bcLog('Getting sessionStorage...', 'info');
+    const r = await bcSend('getSessionStorage');
+    if (!r || r.error) return;
+    bcLog(`✓ ${Object.keys(r.data || {}).length}개 항목`, 'ok');
+    bcShowStorage(r.data);
+}
+
+async function bcGetCookies() {
+    bcLog('Getting cookies...', 'info');
+    const r = await bcSend('getCookies');
+    if (!r || r.error) return;
+    bcLog(`✓ ${r.cookies?.length || 0}개 쿠키`, 'ok');
+    bcShowStorage(r.cookies);
+}
+
+async function bcSetLocalStorage() {
+    const key = document.getElementById('bcStorageKey')?.value?.trim();
+    const val = document.getElementById('bcStorageVal')?.value || '';
+    if (!key) return;
+    bcLog(`Set localStorage[${key}] = ${val}`, 'info');
+    const r = await bcSend('setLocalStorage', { key, value: val });
+    if (r && !r.error) bcLog('✓ Set', 'ok');
+}
+
+async function bcRemoveLocalStorage() {
+    const key = document.getElementById('bcStorageKey')?.value?.trim();
+    if (!key) return;
+    bcLog(`Remove localStorage[${key}]`, 'info');
+    const r = await bcSend('removeLocalStorage', { key });
+    if (r && !r.error) bcLog('✓ Removed', 'ok');
+}
+
+// ===================================================================
+//  Browser Control — 성능 + 풀페이지 스크린샷
+// ===================================================================
+
+async function bcGetPerf() {
+    bcLog('Getting performance metrics...', 'info');
+    const r = await bcSend('getPerformanceMetrics');
+    if (!r || r.error) return;
+    const el = document.getElementById('bcPerfResult');
+    if (el) {
+        el.style.display = 'block';
+        const metrics = (r.metrics || []).filter(m => ['TaskDuration','ScriptDuration','LayoutDuration','RecalcStyleDuration','JSHeapUsedSize','JSHeapTotalSize','Documents','Frames','LayoutCount','RecalcStyleCount'].includes(m.name));
+        el.textContent = metrics.map(m => `${m.name}: ${typeof m.value === 'number' && m.value > 1000 ? (m.value/1024/1024).toFixed(2)+'MB' : m.value}`).join('\n');
+    }
+    bcLog(`✓ ${r.metrics?.length || 0}개 메트릭`, 'ok');
+}
+
+async function bcFullPage() {
+    bcLog('Capturing full page...', 'info');
+    const r = await bcSend('fullPageScreenshot');
+    if (!r || r.error) return;
+    const img = document.getElementById('bcScreenshotImg');
+    const placeholder = document.getElementById('bcPlaceholder');
+    if (img) {
+        img.src = 'data:image/png;base64,' + r.data;
+        img.style.display = '';
+        if (placeholder) placeholder.style.display = 'none';
+        bcLog('✓ Full page screenshot captured', 'ok');
+    }
+}
 
 // ===================================================================
 //  Model Selector
