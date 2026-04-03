@@ -75,6 +75,16 @@ async function typeAtFocus(text) {
   await cdp('Input.insertText', { text });
 }
 
+async function doubleClickXY(x, y) {
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 2 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 2 });
+}
+
+async function rightClickXY(x, y) {
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+}
+
 async function clickSelector(selector) {
   const pos = await execute(`
     (function() {
@@ -171,6 +181,14 @@ async function handleCommand(cmd) {
         break;
       case 'clickXY':
         await clickXY(cmd.x, cmd.y);
+        res.success = true;
+        break;
+      case 'doubleClick_xy':
+        await doubleClickXY(cmd.x, cmd.y);
+        res.success = true;
+        break;
+      case 'rightClick_xy':
+        await rightClickXY(cmd.x, cmd.y);
         res.success = true;
         break;
       case 'typeAtFocus':

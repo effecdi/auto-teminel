@@ -69,6 +69,8 @@ let bcExtConnected = false;          // 익스텐션 연결 여부
 const bcStateMap = new Map();        // projectId → { screenshotSrc, url, log[] }
 let bcConsoleCaptured = false;       // 콘솔 캡처 중
 let bcNetworkCaptured = false;       // 네트워크 캡처 중
+let bcCurrentMode = 'click';         // 현재 직접 제어 모드
+let bcAutoRefresh = true;            // 액션 후 자동 스크린샷
 
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
@@ -5037,6 +5039,12 @@ function toggleBrowserControl() {
         // 연결 상태 동기화
         ipcRenderer.invoke('browser.isConnected').then(connected => bcUpdateStatus(connected));
 
+        // 자동갱신 배지 초기화
+        const autoBadge = document.getElementById('bcAutoBadge');
+        const autoBtn = document.getElementById('bcAutoRefreshBtn');
+        if (autoBadge) autoBadge.classList.toggle('on', bcAutoRefresh);
+        if (autoBtn) autoBtn.classList.toggle('active', bcAutoRefresh);
+
         // 프로젝트별 상태 복원
         if (currentProject) bcRestoreState(currentProject.id);
 
@@ -5047,6 +5055,78 @@ function toggleBrowserControl() {
             jsInput.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') bcExecute();
             });
+        }
+
+        // 스크린샷 직접 클릭 바인딩
+        const ssImg = document.getElementById('bcScreenshotImg');
+        if (ssImg && !ssImg._bcClickBound) {
+            ssImg._bcClickBound = true;
+            ssImg.classList.add('interactive');
+
+            // 클릭 → 브라우저 제어
+            ssImg.addEventListener('click', async (e) => {
+                if (!bcExtConnected) { showToast('Extension not connected', 'error'); return; }
+                const rect = ssImg.getBoundingClientRect();
+                const scaleX = (ssImg.naturalWidth || rect.width) / rect.width;
+                const scaleY = (ssImg.naturalHeight || rect.height) / rect.height;
+                const x = Math.round((e.clientX - rect.left) * scaleX);
+                const y = Math.round((e.clientY - rect.top) * scaleY);
+
+                // 클릭 피드백 애니메이션
+                bcShowClickFlash(e.clientX - rect.left, e.clientY - rect.top);
+
+                if (bcCurrentMode === 'type') {
+                    // 입력 모드: 먼저 그 위치 클릭 후 입력 오버레이 표시
+                    await bcSend('clickXY', { x, y });
+                    bcShowTypeOverlay();
+                } else if (bcCurrentMode === 'dblclick') {
+                    await bcSend('doubleClick_xy', { x, y });
+                    bcLog(`✌️ 더블클릭 (${x}, ${y})`, 'ok');
+                } else if (bcCurrentMode === 'rightclick') {
+                    await ipcRenderer.invoke('browser.send', { type: 'rightClick_xy', x, y });
+                    bcLog(`👆 우클릭 (${x}, ${y})`, 'ok');
+                } else {
+                    // 기본: 클릭
+                    await bcSend('clickXY', { x, y });
+                    bcLog(`🖱️ 클릭 (${x}, ${y})`, 'ok');
+                }
+
+                // 자동 갱신
+                if (bcAutoRefresh) setTimeout(() => bcScreenshot(), 600);
+            });
+
+            // 마우스 이동 → 좌표 표시
+            ssImg.addEventListener('mousemove', (e) => {
+                const rect = ssImg.getBoundingClientRect();
+                const scaleX = (ssImg.naturalWidth || rect.width) / rect.width;
+                const scaleY = (ssImg.naturalHeight || rect.height) / rect.height;
+                const x = Math.round((e.clientX - rect.left) * scaleX);
+                const y = Math.round((e.clientY - rect.top) * scaleY);
+                const tip = document.getElementById('bcCoordTip');
+                const disp = document.getElementById('bcCoordDisplay');
+                if (tip) {
+                    tip.style.display = 'block';
+                    tip.style.left = (e.clientX - rect.left + 10) + 'px';
+                    tip.style.top = (e.clientY - rect.top - 24) + 'px';
+                    tip.textContent = `${x}, ${y}`;
+                }
+                if (disp) disp.textContent = `${x}, ${y}`;
+            });
+
+            ssImg.addEventListener('mouseleave', () => {
+                const tip = document.getElementById('bcCoordTip');
+                if (tip) tip.style.display = 'none';
+                const disp = document.getElementById('bcCoordDisplay');
+                if (disp) disp.textContent = '';
+            });
+
+            // 스크롤 → 브라우저 스크롤
+            ssImg.addEventListener('wheel', async (e) => {
+                e.preventDefault();
+                if (!bcExtConnected) return;
+                await ipcRenderer.invoke('browser.send', { type: 'scroll', x: 0, y: Math.round(e.deltaY) });
+                if (bcAutoRefresh) setTimeout(() => bcScreenshot(), 400);
+            }, { passive: false });
         }
     } else {
         if (browserContainer) browserContainer.style.display = 'none';
@@ -5073,6 +5153,82 @@ async function bcSend(type, params = {}) {
         showToast(result.error, 'error');
     }
     return result;
+}
+
+// ===================================================================
+//  직접 제어 — 모드 / 스크롤 / 입력 오버레이
+// ===================================================================
+
+function bcSetMode(mode) {
+    bcCurrentMode = mode;
+    const modes = ['click', 'dblclick', 'rightclick', 'type'];
+    const ids = { click: 'bcModeClick', dblclick: 'bcModeDbl', rightclick: 'bcModeRight', type: 'bcModeType' };
+    modes.forEach(m => {
+        const btn = document.getElementById(ids[m]);
+        if (btn) btn.classList.toggle('active', m === mode);
+    });
+    const img = document.getElementById('bcScreenshotImg');
+    if (img) {
+        img.className = 'interactive';
+        if (mode === 'type') img.classList.add('mode-type');
+        else if (mode === 'scroll') img.classList.add('mode-scroll');
+    }
+    if (mode !== 'type') bcHideTypeOverlay();
+}
+
+function bcToggleAutoRefresh() {
+    bcAutoRefresh = !bcAutoRefresh;
+    const btn = document.getElementById('bcAutoRefreshBtn');
+    const badge = document.getElementById('bcAutoBadge');
+    if (btn) btn.classList.toggle('active', bcAutoRefresh);
+    if (badge) badge.classList.toggle('on', bcAutoRefresh);
+    bcLog(bcAutoRefresh ? '🔄 자동 갱신 켜짐' : '자동 갱신 꺼짐', 'info');
+}
+
+function bcShowClickFlash(localX, localY) {
+    const area = document.getElementById('bcScreenshotArea');
+    if (!area) return;
+    const flash = document.createElement('div');
+    flash.className = 'bc-click-flash';
+    flash.style.left = localX + 'px';
+    flash.style.top = localY + 'px';
+    area.appendChild(flash);
+    setTimeout(() => flash.remove(), 450);
+}
+
+function bcShowTypeOverlay() {
+    const overlay = document.getElementById('bcTypeOverlay');
+    if (overlay) {
+        overlay.classList.add('show');
+        const input = document.getElementById('bcTypeOverlayInput');
+        if (input) { input.value = ''; input.focus(); }
+    }
+}
+
+function bcHideTypeOverlay() {
+    const overlay = document.getElementById('bcTypeOverlay');
+    if (overlay) overlay.classList.remove('show');
+}
+
+async function bcSendTypeOverlay() {
+    const input = document.getElementById('bcTypeOverlayInput');
+    const text = input?.value || '';
+    if (!text) return;
+    bcLog(`⌨️ 입력: "${text}"`, 'info');
+    const r = await bcSend('typeAtFocus', { text });
+    if (r && !r.error) {
+        bcLog('✓ 입력 완료', 'ok');
+        if (input) input.value = '';
+        bcHideTypeOverlay();
+        if (bcAutoRefresh) setTimeout(() => bcScreenshot(), 500);
+    }
+}
+
+async function bcScrollPage(delta) {
+    if (!bcExtConnected) { showToast('Extension not connected', 'error'); return; }
+    await ipcRenderer.invoke('browser.send', { type: 'scroll', x: 0, y: delta });
+    bcLog(`↕ 스크롤 ${delta > 0 ? '▼' : '▲'} ${Math.abs(delta)}px`, 'info');
+    if (bcAutoRefresh) setTimeout(() => bcScreenshot(), 400);
 }
 
 async function bcAttach() {

@@ -82,6 +82,35 @@
             white-space: nowrap;
         }
         .bc-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+        /* 직접 제어 모드 바 */
+        .bc-mode-bar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; background: #0d0d0d; border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+        .bc-mode-btn { background: #1a1a1a; border: 1px solid #2a2a2a; color: #aaa; border-radius: 5px; padding: 4px 10px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; transition: all .15s; }
+        .bc-mode-btn:hover { background: #252525; color: #e0e0e0; }
+        .bc-mode-btn.active { background: #1a3a5a; border-color: #2a6aaa; color: #5ab4f7; font-weight: 600; }
+        .bc-mode-btn.green { background: #1a3a1a; border-color: #2a5a2a; color: #4caf81; }
+        .bc-mode-btn.green.active { background: #1a4a1a; border-color: #3a7a3a; }
+        .bc-mode-sep { width: 1px; height: 16px; background: #2a2a2a; margin: 0 2px; }
+        .bc-auto-badge { font-size: 9px; padding: 1px 4px; border-radius: 8px; background: #4caf81; color: #000; display: none; }
+        .bc-auto-badge.on { display: inline; }
+        /* 스크린샷 인터랙티브 */
+        .bc-screenshot-area { position: relative; overflow: hidden; }
+        .bc-screenshot-area img.interactive { cursor: crosshair; }
+        .bc-screenshot-area img.mode-type { cursor: text; }
+        .bc-screenshot-area img.mode-scroll { cursor: ns-resize; }
+        .bc-coord-tip { position: absolute; background: rgba(0,0,0,.75); color: #5ab4f7; font-size: 10px; font-family: monospace; padding: 2px 6px; border-radius: 3px; pointer-events: none; display: none; white-space: nowrap; z-index: 10; }
+        .bc-click-flash { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: rgba(90,180,247,.5); border: 2px solid #5ab4f7; transform: translate(-50%,-50%); pointer-events: none; animation: bcFlash .4s ease-out forwards; z-index: 11; }
+        @keyframes bcFlash { 0%{opacity:1;transform:translate(-50%,-50%) scale(1)} 100%{opacity:0;transform:translate(-50%,-50%) scale(2.5)} }
+        /* 입력 오버레이 */
+        .bc-type-overlay { position: absolute; bottom: 10px; left: 10px; right: 10px; display: none; z-index: 20; }
+        .bc-type-overlay.show { display: flex; gap: 4px; }
+        .bc-type-input { flex: 1; background: rgba(10,10,10,.95); border: 1px solid #5ab4f7; color: #e0e0e0; border-radius: 5px; padding: 6px 10px; font-size: 13px; outline: none; }
+        .bc-type-send { background: #1a4a8a; border: 1px solid #2a6aaa; color: #5ab4f7; border-radius: 5px; padding: 6px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+        .bc-type-send:hover { background: #2a5a9a; }
+        /* 스크롤 버튼 */
+        .bc-scroll-btns { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; flex-direction: column; gap: 4px; z-index: 10; }
+        .bc-screenshot-area:hover .bc-scroll-btns { display: flex; }
+        .bc-scroll-btn { background: rgba(20,20,20,.85); border: 1px solid #333; color: #aaa; border-radius: 4px; padding: 6px 8px; font-size: 14px; cursor: pointer; }
+        .bc-scroll-btn:hover { background: rgba(40,40,40,.95); color: #fff; }
         .bc-status-dot.on { background: #4caf81; }
         .bc-url-bar {
             display: flex; flex: 1; gap: 4px;
@@ -1551,6 +1580,22 @@
                     <button class="bc-btn" onclick="bcAttach()">Attach</button>
                     <button class="bc-btn" onclick="bcScreenshot()">📸</button>
                 </div>
+                <!-- 직접 제어 모드 바 -->
+                <div class="bc-mode-bar">
+                    <button class="bc-mode-btn active" id="bcModeClick" onclick="bcSetMode('click')" title="클릭 모드">🖱️ 클릭</button>
+                    <button class="bc-mode-btn" id="bcModeDbl" onclick="bcSetMode('dblclick')" title="더블클릭">✌️ 더블</button>
+                    <button class="bc-mode-btn" id="bcModeRight" onclick="bcSetMode('rightclick')" title="우클릭">👆 우클릭</button>
+                    <button class="bc-mode-btn" id="bcModeType" onclick="bcSetMode('type')" title="텍스트 입력">⌨️ 입력</button>
+                    <div class="bc-mode-sep"></div>
+                    <button class="bc-mode-btn" onclick="bcScrollPage(-400)" title="위로 스크롤">↑ 위</button>
+                    <button class="bc-mode-btn" onclick="bcScrollPage(400)" title="아래로 스크롤">↓ 아래</button>
+                    <div class="bc-mode-sep"></div>
+                    <button class="bc-mode-btn" onclick="bcScreenshot()" title="스크린샷 갱신">📸 갱신</button>
+                    <button class="bc-mode-btn green" id="bcAutoRefreshBtn" onclick="bcToggleAutoRefresh()" title="클릭 후 자동 갱신">
+                        🔄 자동갱신 <span class="bc-auto-badge" id="bcAutoBadge">ON</span>
+                    </button>
+                    <span id="bcCoordDisplay" style="margin-left:auto; font-size:10px; font-family:monospace; color:#555;"></span>
+                </div>
                 <div class="bc-body">
                     <div class="bc-main">
                         <div class="bc-screenshot-area" id="bcScreenshotArea">
@@ -1558,7 +1603,20 @@
                                 <div style="font-size:32px;">🌐</div>
                                 <div>크롬 익스텐션 로드 후 Attach 클릭</div>
                             </div>
-                            <img id="bcScreenshotImg" src="" alt="" style="display:none;">
+                            <img id="bcScreenshotImg" src="" alt="interactive" style="display:none;">
+                            <!-- 좌표 툴팁 -->
+                            <div class="bc-coord-tip" id="bcCoordTip"></div>
+                            <!-- 입력 오버레이 -->
+                            <div class="bc-type-overlay" id="bcTypeOverlay">
+                                <input class="bc-type-input" id="bcTypeOverlayInput" placeholder="입력할 텍스트 후 Enter 또는 전송" onkeydown="if(event.key==='Enter')bcSendTypeOverlay()">
+                                <button class="bc-type-send" onclick="bcSendTypeOverlay()">전송</button>
+                                <button class="bc-type-send" style="background:#2a1a1a;border-color:#aa2a2a;color:#e05555;" onclick="bcHideTypeOverlay()">✕</button>
+                            </div>
+                            <!-- 스크롤 버튼 -->
+                            <div class="bc-scroll-btns">
+                                <button class="bc-scroll-btn" onclick="bcScrollPage(-300)">▲</button>
+                                <button class="bc-scroll-btn" onclick="bcScrollPage(300)">▼</button>
+                            </div>
                         </div>
                     </div>
                     <div class="bc-sidebar">
