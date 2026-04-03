@@ -63,6 +63,11 @@ let ccMode = false;                  // true = CC visible, false = Terminal visi
 function getCcId() { return currentProject ? currentProject.id : 'main'; }
 const ccStateMap = new Map();        // projectId → { url, task, logsHTML, screenshotSrc, screenshotVisible }
 
+// Browser Control state (Chrome Extension)
+let browserMode = false;             // true = Browser panel visible
+let bcExtConnected = false;          // 익스텐션 연결 여부
+const bcStateMap = new Map();        // projectId → { screenshotSrc, url, log[] }
+
 // AI Chat state
 let aiChatMode = false;              // true = AI Chat visible, false = Terminal visible
 let aiChatMessages = new Map();      // projectId -> [{role, content, timestamp}]
@@ -522,6 +527,12 @@ async function selectProject(projectId) {
 
     // Persist last selected project
     ipcRenderer.invoke('session.setLastSelectedProject', projectId);
+
+    // Browser Control: save/restore per-project state on project switch
+    if (browserMode && previousProject && previousProject.id !== projectId) {
+        bcSaveState(previousProject.id);
+        bcRestoreState(projectId);
+    }
 
     // Computer Control: save previous project state and switch to new project instance
     if (ccMode && previousProject && previousProject.id !== projectId) {
@@ -4934,6 +4945,203 @@ window.addEventListener('resize', () => {
     if (ccMode) {
         ccUpdateBrowserBounds();
     }
+});
+
+// ===================================================================
+//  Browser Control (Chrome Extension)
+// ===================================================================
+
+function bcLog(msg, type = 'info') {
+    const log = document.getElementById('bcLog');
+    if (!log) return;
+    const entry = document.createElement('div');
+    entry.className = `bc-log-entry ${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
+    // 최대 100개 유지
+    while (log.children.length > 100) log.removeChild(log.firstChild);
+}
+
+function bcUpdateStatus(connected) {
+    bcExtConnected = connected;
+    const dot = document.getElementById('bcStatusDot');
+    const text = document.getElementById('bcStatusText');
+    if (dot) dot.className = 'bc-status-dot' + (connected ? ' on' : '');
+    if (text) text.textContent = connected ? 'Extension connected' : 'Extension disconnected';
+}
+
+function bcSaveState(projectId) {
+    const img = document.getElementById('bcScreenshotImg');
+    const urlInput = document.getElementById('bcUrlInput');
+    const log = document.getElementById('bcLog');
+    bcStateMap.set(projectId, {
+        screenshotSrc: img?.src || '',
+        screenshotVisible: img?.style.display !== 'none',
+        url: urlInput?.value || '',
+        logHTML: log?.innerHTML || '',
+    });
+}
+
+function bcRestoreState(projectId) {
+    const state = bcStateMap.get(projectId) || {};
+    const img = document.getElementById('bcScreenshotImg');
+    const placeholder = document.getElementById('bcPlaceholder');
+    const urlInput = document.getElementById('bcUrlInput');
+    const log = document.getElementById('bcLog');
+    if (img) {
+        if (state.screenshotSrc && state.screenshotVisible) {
+            img.src = state.screenshotSrc;
+            img.style.display = '';
+            if (placeholder) placeholder.style.display = 'none';
+        } else {
+            img.src = '';
+            img.style.display = 'none';
+            if (placeholder) placeholder.style.display = '';
+        }
+    }
+    if (urlInput) urlInput.value = state.url || '';
+    if (log) log.innerHTML = state.logHTML || '';
+}
+
+function toggleBrowserControl() {
+    if (aiChatMode) toggleAiChat();
+    if (ccMode) toggleComputerControl();
+
+    browserMode = !browserMode;
+
+    const terminalContainer = document.getElementById('terminal-container');
+    const browserContainer = document.getElementById('browser-container');
+    const terminalOnlyBtns = document.getElementById('terminalOnlyBtns');
+    const toolbarSep = document.getElementById('terminalToolbarSep');
+    const contentHeader = document.querySelector('.content-header');
+    const bcBtn = document.getElementById('bcToggleBtn');
+    const promptArea = document.querySelector('.prompt-area');
+    const timelinePanel = document.getElementById('timeline-panel');
+
+    if (browserMode) {
+        if (terminalContainer) terminalContainer.style.display = 'none';
+        if (timelinePanel) timelinePanel.style.display = 'none';
+        if (browserContainer) browserContainer.style.display = 'flex';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = 'none';
+        if (toolbarSep) toolbarSep.style.display = 'none';
+        if (contentHeader) contentHeader.style.display = 'none';
+        if (bcBtn) bcBtn.classList.add('active');
+        if (promptArea) promptArea.style.display = 'none';
+
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar) { queueBar.dataset.hiddenByBC = queueBar.style.display !== 'none' ? '1' : ''; queueBar.style.display = 'none'; }
+
+        // 연결 상태 동기화
+        ipcRenderer.invoke('browser.isConnected').then(connected => bcUpdateStatus(connected));
+
+        // 프로젝트별 상태 복원
+        if (currentProject) bcRestoreState(currentProject.id);
+
+        // JS input Ctrl+Enter 바인딩
+        const jsInput = document.getElementById('bcJsInput');
+        if (jsInput && !jsInput._bcBound) {
+            jsInput._bcBound = true;
+            jsInput.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') bcExecute();
+            });
+        }
+    } else {
+        if (browserContainer) browserContainer.style.display = 'none';
+        if (terminalContainer) terminalContainer.style.display = '';
+        if (terminalOnlyBtns) terminalOnlyBtns.style.display = '';
+        if (toolbarSep) toolbarSep.style.display = '';
+        if (contentHeader) contentHeader.style.display = '';
+        if (bcBtn) bcBtn.classList.remove('active');
+        if (promptArea) promptArea.style.display = '';
+
+        const queueBar = document.getElementById('queueProgressBar');
+        if (queueBar && queueBar.dataset.hiddenByBC === '1') queueBar.style.display = '';
+
+        // 현재 프로젝트 상태 저장
+        if (currentProject) bcSaveState(currentProject.id);
+    }
+}
+
+async function bcSend(type, params = {}) {
+    if (!bcExtConnected) { showToast('Extension not connected', 'error'); return null; }
+    const result = await ipcRenderer.invoke('browser.send', { type, ...params });
+    if (result?.error) {
+        bcLog(`❌ ${type}: ${result.error}`, 'err');
+        showToast(result.error, 'error');
+    }
+    return result;
+}
+
+async function bcAttach() {
+    bcLog('Attaching debugger to active tab...', 'info');
+    const r = await bcSend('attach');
+    if (r && !r.error) {
+        bcLog(`✓ Attached (tabId: ${r.tabId})`, 'ok');
+        showToast('Debugger attached', 'success');
+    }
+}
+
+async function bcScreenshot() {
+    const r = await bcSend('screenshot');
+    if (!r || r.error) return;
+    const img = document.getElementById('bcScreenshotImg');
+    const placeholder = document.getElementById('bcPlaceholder');
+    if (img) {
+        img.src = 'data:image/png;base64,' + r.data;
+        img.style.display = '';
+        if (placeholder) placeholder.style.display = 'none';
+        bcLog('📸 Screenshot captured', 'ok');
+    }
+}
+
+async function bcNavigate() {
+    const url = document.getElementById('bcUrlInput')?.value?.trim();
+    if (!url) return;
+    bcLog(`→ Navigate: ${url}`, 'info');
+    const r = await bcSend('navigate', { url });
+    if (r && !r.error) {
+        bcLog('✓ Navigated', 'ok');
+        // 자동 스크린샷
+        setTimeout(() => bcScreenshot(), 1200);
+    }
+}
+
+async function bcExecute() {
+    const script = document.getElementById('bcJsInput')?.value?.trim();
+    if (!script) return;
+    bcLog(`> ${script.slice(0, 60)}`, 'info');
+    const r = await bcSend('execute', { script });
+    if (!r || r.error) return;
+    const resultEl = document.getElementById('bcJsResult');
+    if (resultEl) {
+        resultEl.style.display = 'block';
+        resultEl.textContent = JSON.stringify(r.result, null, 2);
+    }
+    bcLog(`✓ ${JSON.stringify(r.result).slice(0, 80)}`, 'ok');
+}
+
+async function bcClick() {
+    const selector = document.getElementById('bcSelectorInput')?.value?.trim();
+    if (!selector) return;
+    bcLog(`Click: ${selector}`, 'info');
+    const r = await bcSend('click', { selector });
+    if (r && !r.error) bcLog('✓ Clicked', 'ok');
+}
+
+async function bcType() {
+    const selector = document.getElementById('bcSelectorInput')?.value?.trim();
+    const text = document.getElementById('bcTypeInput')?.value || '';
+    if (!selector) return;
+    bcLog(`Type "${text}" → ${selector}`, 'info');
+    const r = await bcSend('type', { selector, text });
+    if (r && !r.error) bcLog('✓ Typed', 'ok');
+}
+
+// IPC: 익스텐션 연결/해제 실시간 수신
+ipcRenderer.on('browser.extConnected', (event, connected) => {
+    bcUpdateStatus(connected);
+    if (browserMode) bcLog(connected ? '✓ Extension connected' : '⚠ Extension disconnected', connected ? 'ok' : 'err');
 });
 
 // ===================================================================

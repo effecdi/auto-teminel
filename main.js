@@ -13,6 +13,7 @@ const pty = require('node-pty');
 const TaskQueue = require('./task-queue');
 const ComputerControl = require('./computer-control');
 const { startRemoteServer, stopRemoteServer, broadcastOutput, broadcastEvent, broadcastQueueUpdate } = require('./remote-server');
+const { WebSocketServer } = require('ws');
 const { DebateEngine, MODES } = require('./debate-engine');
 const { buildProjectContext, getOperationsList } = require('./project-context');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
@@ -900,6 +901,7 @@ app.whenReady().then(() => {
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
     createWindow();
+    startBrowserWsServer();
 
     // ===================================================================
     //  Auto-Updater (electron-updater)
@@ -3532,4 +3534,78 @@ ipcMain.handle('mcp.revoke', async (event, { serverName, serverUrl }) => {
     } catch (err) {
         return { success: false, error: err.message };
     }
+});
+
+// ====================================================================
+//  Browser Control — WebSocket Server (Chrome Extension 연동)
+// ====================================================================
+let browserWsServer = null;
+let browserExtSocket = null;           // 연결된 익스텐션 소켓 (1개)
+let browserCmdCallbacks = new Map();   // cmdId → resolve
+let browserCmdSeq = 0;
+
+function startBrowserWsServer(port = 9999) {
+    try {
+        browserWsServer = new WebSocketServer({ port });
+        console.log(`[Browser WS] 서버 시작 ws://localhost:${port}`);
+    } catch (e) {
+        console.error('[Browser WS] 서버 시작 실패:', e.message);
+        return;
+    }
+
+    browserWsServer.on('connection', (socket) => {
+        console.log('[Browser WS] 익스텐션 연결됨');
+        browserExtSocket = socket;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('browser.extConnected', true);
+        }
+
+        socket.on('message', (raw) => {
+            let msg;
+            try { msg = JSON.parse(raw.toString()); } catch { return; }
+            if (msg.type === 'hello') return; // handshake 무시
+
+            // 대기 중인 콜백 resolve
+            const cb = browserCmdCallbacks.get(msg.id);
+            if (cb) { browserCmdCallbacks.delete(msg.id); cb(msg); }
+
+            // 렌더러에 브로드캐스트 (screenshot 등 실시간 업데이트)
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('browser.response', msg);
+            }
+        });
+
+        socket.on('close', () => {
+            console.log('[Browser WS] 익스텐션 연결 끊김');
+            browserExtSocket = null;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('browser.extConnected', false);
+            }
+        });
+
+        socket.on('error', (e) => console.error('[Browser WS] 소켓 에러:', e.message));
+    });
+}
+
+// 렌더러 → 익스텐션으로 명령 전송 (응답 대기)
+ipcMain.handle('browser.send', async (event, { type, ...params }) => {
+    if (!browserExtSocket || browserExtSocket.readyState !== 1 /* OPEN */) {
+        return { error: 'Extension not connected' };
+    }
+    const id = ++browserCmdSeq;
+    return new Promise((resolve) => {
+        browserCmdCallbacks.set(id, resolve);
+        browserExtSocket.send(JSON.stringify({ id, type, ...params }));
+        // 30s 타임아웃 (스크린샷 등 느릴 수 있음)
+        setTimeout(() => {
+            if (browserCmdCallbacks.has(id)) {
+                browserCmdCallbacks.delete(id);
+                resolve({ error: 'Timeout' });
+            }
+        }, 30000);
+    });
+});
+
+ipcMain.handle('browser.isConnected', () => {
+    return browserExtSocket?.readyState === 1;
 });
