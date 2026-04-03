@@ -902,6 +902,8 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
     createWindow();
     startBrowserWsServer();
+    writeBrowserCtlScript();
+    startBrowserCtlServer();
 
     // ===================================================================
     //  Auto-Updater (electron-updater)
@@ -1177,7 +1179,12 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
         for (const p of extraPaths) {
             pathSet.add(p);
         }
+        // browser-ctl 스크립트 bin 디렉터리 추가
+        pathSet.add(BROWSER_CTL_BIN_DIR);
         cleanEnv.PATH = [...pathSet].join(':');
+        // Claude CLI가 브라우저 API를 사용할 수 있도록 환경변수 주입
+        cleanEnv.BROWSER_CTL_URL = `http://127.0.0.1:${BROWSER_CTL_PORT}`;
+        cleanEnv.BROWSER_SCREENSHOT_PATH = BROWSER_SCREENSHOT_PATH;
 
         const proc = pty.spawn(shell, shellArgs, {
             name: 'xterm-256color',
@@ -3609,6 +3616,316 @@ ipcMain.handle('browser.send', async (event, { type, ...params }) => {
 ipcMain.handle('browser.isConnected', () => {
     return browserExtSocket?.readyState === 1;
 });
+
+// ====================================================================
+//  Browser Control HTTP API — CLI 연동 (port 9998)
+// ====================================================================
+
+const BROWSER_CTL_PORT = 9998;
+const BROWSER_CTL_BIN_DIR = path.join(os.tmpdir(), 'auto-teminel-bin');
+const BROWSER_CTL_SCRIPT = path.join(BROWSER_CTL_BIN_DIR, 'browser-ctl');
+const BROWSER_SCREENSHOT_PATH = path.join(os.tmpdir(), 'browser-screenshot.png');
+
+let browserCtlServer = null;
+
+function startBrowserCtlServer() {
+    if (browserCtlServer) return;
+
+    const http = require('http');
+
+    browserCtlServer = http.createServer(async (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        const url = new URL(req.url, `http://localhost:${BROWSER_CTL_PORT}`);
+        const pathname = url.pathname;
+
+        // 연결 확인
+        const connected = browserExtSocket?.readyState === 1;
+
+        const sendJSON = (obj, code = 200) => {
+            res.writeHead(code);
+            res.end(JSON.stringify(obj));
+        };
+
+        const bodyJSON = () => new Promise((resolve, reject) => {
+            let data = '';
+            req.on('data', c => data += c);
+            req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+        });
+
+        const bc = async (type, params = {}) => {
+            if (!connected) return { error: 'Extension not connected. Attach first.' };
+            return sendBrowserExtRaw(type, params);
+        };
+
+        try {
+            if (pathname === '/status') {
+                return sendJSON({ ok: true, connected, screenshotPath: BROWSER_SCREENSHOT_PATH });
+            }
+
+            if (pathname === '/screenshot') {
+                const r = await bc('screenshot');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                // PNG를 파일로 저장
+                require('fs').writeFileSync(BROWSER_SCREENSHOT_PATH, Buffer.from(r.data, 'base64'));
+                return sendJSON({ ok: true, path: BROWSER_SCREENSHOT_PATH, hint: `Read the file at ${BROWSER_SCREENSHOT_PATH}` });
+            }
+
+            if (pathname === '/click') {
+                const body = await bodyJSON();
+                const r = await bc('clickXY', { x: body.x, y: body.y });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                await new Promise(resolve => setTimeout(resolve, 300));
+                return sendJSON({ ok: true });
+            }
+
+            if (pathname === '/type') {
+                const body = await bodyJSON();
+                const r = await bc('typeAtFocus', { text: body.text });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true });
+            }
+
+            if (pathname === '/navigate') {
+                const body = await bodyJSON();
+                const r = await bc('navigate', { url: body.url });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return sendJSON({ ok: true });
+            }
+
+            if (pathname === '/execute') {
+                const body = await bodyJSON();
+                const r = await bc('execute', { script: body.script });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, result: r.result });
+            }
+
+            if (pathname === '/scroll') {
+                const body = await bodyJSON();
+                const r = await bc('scroll', { x: body.x || 0, y: body.y || 300 });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true });
+            }
+
+            if (pathname === '/url') {
+                const r = await bc('getURL');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, url: r.url });
+            }
+
+            if (pathname === '/html') {
+                const r = await bc('getHTML');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, html: r.html });
+            }
+
+            if (pathname === '/interactive') {
+                const r = await bc('listInteractive');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, elements: r.results });
+            }
+
+            if (pathname === '/findByText') {
+                const body = await bodyJSON();
+                const r = await bc('findByText', { text: body.text });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, results: r.results });
+            }
+
+            if (pathname === '/highlight') {
+                const body = await bodyJSON();
+                const r = await bc('highlight', { selector: body.selector });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, result: r.result });
+            }
+
+            if (pathname === '/keyShortcut') {
+                const body = await bodyJSON();
+                const r = await bc('keyShortcut', { combo: body.combo });
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true });
+            }
+
+            if (pathname === '/cookies') {
+                const r = await bc('getCookies');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, cookies: r.cookies });
+            }
+
+            if (pathname === '/localStorage') {
+                const r = await bc('getLocalStorage');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                return sendJSON({ ok: true, data: r.data });
+            }
+
+            if (pathname === '/fullPageScreenshot') {
+                const r = await bc('fullPageScreenshot');
+                if (r.error) return sendJSON({ ok: false, error: r.error }, 503);
+                require('fs').writeFileSync(BROWSER_SCREENSHOT_PATH, Buffer.from(r.data, 'base64'));
+                return sendJSON({ ok: true, path: BROWSER_SCREENSHOT_PATH });
+            }
+
+            sendJSON({ ok: false, error: `Unknown endpoint: ${pathname}` }, 404);
+        } catch (e) {
+            sendJSON({ ok: false, error: e.message }, 500);
+        }
+    });
+
+    browserCtlServer.listen(BROWSER_CTL_PORT, '127.0.0.1', () => {
+        console.log(`[BrowserCtl] HTTP API 시작 http://127.0.0.1:${BROWSER_CTL_PORT}`);
+    });
+
+    browserCtlServer.on('error', (e) => {
+        console.error('[BrowserCtl] 서버 오류:', e.message);
+    });
+}
+
+// sendBrowserExt의 별칭 (서버 코드에서 사용하기 위해 먼저 선언)
+function sendBrowserExtRaw(type, params = {}) {
+    return new Promise((resolve) => {
+        if (!browserExtSocket || browserExtSocket.readyState !== 1) {
+            resolve({ error: 'Extension not connected' });
+            return;
+        }
+        const id = ++browserCmdSeq;
+        browserCmdCallbacks.set(id, resolve);
+        browserExtSocket.send(JSON.stringify({ id, type, ...params }));
+        setTimeout(() => {
+            if (browserCmdCallbacks.has(id)) {
+                browserCmdCallbacks.delete(id);
+                resolve({ error: 'Timeout' });
+            }
+        }, 30000);
+    });
+}
+
+function writeBrowserCtlScript() {
+    try {
+        const fs = require('fs');
+        fs.mkdirSync(BROWSER_CTL_BIN_DIR, { recursive: true });
+        const script = `#!/bin/bash
+# browser-ctl — Auto-Teminel Browser Control
+# Chrome Extension + CDP 브라우저 제어 CLI
+BASE="http://127.0.0.1:${BROWSER_CTL_PORT}"
+
+_post() { curl -sf -X POST -H "Content-Type: application/json" -d "$1" "$BASE/$2"; echo; }
+_get()  { curl -sf "$BASE/$1"; echo; }
+
+case "$1" in
+  screenshot|ss)
+    echo "📸 스크린샷 캡처 중..."
+    RESULT=$(_get screenshot)
+    echo "$RESULT"
+    PATH_VAL=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('path',''))" 2>/dev/null)
+    if [ -n "$PATH_VAL" ]; then echo "→ 파일: $PATH_VAL"; fi
+    ;;
+  click)
+    [ -z "$2" ] || [ -z "$3" ] && { echo "Usage: browser-ctl click <x> <y>"; exit 1; }
+    _post "{\\"x\\":$2,\\"y\\":$3}" click
+    ;;
+  type)
+    [ -z "$2" ] && { echo "Usage: browser-ctl type <text>"; exit 1; }
+    TEXT=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$2" 2>/dev/null || echo "\\"$2\\"")
+    _post "{\\"text\\":$TEXT}" type
+    ;;
+  navigate|goto|nav)
+    [ -z "$2" ] && { echo "Usage: browser-ctl navigate <url>"; exit 1; }
+    _post "{\\"url\\":\\"$2\\"}" navigate
+    ;;
+  execute|js|eval)
+    [ -z "$2" ] && { echo "Usage: browser-ctl execute <script>"; exit 1; }
+    SCRIPT=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$2" 2>/dev/null || echo "\\"$2\\"")
+    _post "{\\"script\\":$SCRIPT}" execute
+    ;;
+  scroll)
+    _post "{\\"x\\":${2:-0},\\"y\\":${3:-300}}" scroll
+    ;;
+  scroll-up)
+    _post "{\\"x\\":0,\\"y\\":${2:--300}}" scroll
+    ;;
+  url)
+    _get url
+    ;;
+  html)
+    _get html
+    ;;
+  interactive|list)
+    echo "🔍 인터랙티브 요소 탐색 중..."
+    _get interactive
+    ;;
+  find)
+    [ -z "$2" ] && { echo "Usage: browser-ctl find <text>"; exit 1; }
+    TEXT=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$2" 2>/dev/null || echo "\\"$2\\"")
+    _post "{\\"text\\":$TEXT}" findByText
+    ;;
+  highlight)
+    [ -z "$2" ] && { echo "Usage: browser-ctl highlight <selector>"; exit 1; }
+    _post "{\\"selector\\":\\"$2\\"}" highlight
+    ;;
+  key|shortcut)
+    [ -z "$2" ] && { echo "Usage: browser-ctl key <combo>  e.g. ctrl+a"; exit 1; }
+    _post "{\\"combo\\":\\"$2\\"}" keyShortcut
+    ;;
+  cookies)
+    _get cookies
+    ;;
+  storage|localstorage)
+    _get localStorage
+    ;;
+  fullpage|full)
+    echo "📸 풀페이지 스크린샷..."
+    RESULT=$(_get fullPageScreenshot)
+    echo "$RESULT"
+    ;;
+  status)
+    _get status
+    ;;
+  help|--help|-h|"")
+    echo "browser-ctl — Auto-Teminel Browser Control v${BROWSER_CTL_PORT}"
+    echo ""
+    echo "사용법: browser-ctl <명령> [인수...]"
+    echo ""
+    echo "명령:"
+    echo "  screenshot (ss)         스크린샷 캡처 → /tmp/browser-screenshot.png"
+    echo "  click <x> <y>           좌표 클릭"
+    echo "  type <text>             포커스된 곳에 텍스트 입력"
+    echo "  navigate <url>          URL 이동"
+    echo "  execute <script>        JS 실행"
+    echo "  scroll [dx] [dy]        스크롤 (기본 dy=300)"
+    echo "  scroll-up [dy]          위로 스크롤"
+    echo "  url                     현재 URL 조회"
+    echo "  html                    페이지 HTML 조회"
+    echo "  interactive (list)      인터랙티브 요소 목록"
+    echo "  find <text>             텍스트로 요소 찾기"
+    echo "  highlight <selector>    요소 하이라이트"
+    echo "  key <combo>             키보드 단축키 (ctrl+a, cmd+c)"
+    echo "  cookies                 쿠키 조회"
+    echo "  storage                 localStorage 조회"
+    echo "  fullpage (full)         풀페이지 스크린샷"
+    echo "  status                  연결 상태"
+    echo ""
+    echo "예시:"
+    echo "  browser-ctl ss"
+    echo "  browser-ctl click 640 400"
+    echo "  browser-ctl navigate https://google.com"
+    echo "  browser-ctl type '검색어'"
+    echo "  browser-ctl key ctrl+a"
+    echo "  browser-ctl execute 'document.title'"
+    ;;
+  *)
+    echo "알 수 없는 명령: $1  (browser-ctl help 로 도움말 확인)"
+    exit 1
+    ;;
+esac
+`;
+        fs.writeFileSync(BROWSER_CTL_SCRIPT, script, { mode: 0o755 });
+        console.log(`[BrowserCtl] 스크립트 생성: ${BROWSER_CTL_SCRIPT}`);
+    } catch (e) {
+        console.error('[BrowserCtl] 스크립트 생성 실패:', e.message);
+    }
+}
 
 // ====================================================================
 //  Browser AI Agent — Gemini Vision + CDP
