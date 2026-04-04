@@ -4623,6 +4623,11 @@ ipcRenderer.on('updater.installFailed', (event, { message }) => {
 //  Computer Control
 // ===================================================================
 
+function ccClearLog() {
+    const logEntries = document.getElementById('ccLogEntries');
+    if (logEntries) logEntries.innerHTML = '<div class="cc-log-empty">Actions will appear here...</div>';
+}
+
 function ccSaveState(projectId) {
     if (!projectId) return;
     const urlInput = document.getElementById('ccUrlInput');
@@ -4784,8 +4789,11 @@ function ccStopTask() {
 async function ccAutoVerify() {
     if (!currentProject) { showToast('프로젝트를 선택하세요', 'error'); return; }
 
-    // Switch to CC mode if not already
-    if (!ccMode) toggleComputerControl();
+    // Switch to CC mode if not already — wait for CC to initialize
+    if (!ccMode) {
+        toggleComputerControl();
+        await new Promise(r => setTimeout(r, 400));
+    }
 
     const verifyBtn = document.getElementById('ccVerifyBtn');
     if (verifyBtn) {

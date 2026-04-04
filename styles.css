@@ -1121,6 +1121,7 @@ body {
     border-bottom: 1px solid #30363d;
     gap: 8px;
     flex-shrink: 0;
+    flex-wrap: wrap;
 }
 .cc-back-btn {
     background: none;
@@ -1209,9 +1210,12 @@ body {
     padding: 8px 12px;
     font-size: 13px;
     font-family: var(--font-ui);
-    resize: none;
+    resize: vertical;
     outline: none;
     line-height: 1.4;
+    min-height: 48px;
+    max-height: 150px;
+    box-sizing: border-box;
 }
 .cc-task-bar textarea:focus { border-color: #388bfd; }
 .cc-task-bar textarea::placeholder { color: #484f58; }
@@ -1242,12 +1246,12 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-width: 200px;
-    max-width: 350px;
+    min-width: 220px;
+    max-width: 420px;
     background: #161b22;
 }
 .cc-log-header {
-    padding: 8px 12px;
+    padding: 6px 10px 6px 12px;
     font-size: 11px;
     font-weight: 700;
     color: #8b949e;
@@ -1255,7 +1259,24 @@ body {
     letter-spacing: 0.5px;
     border-bottom: 1px solid #21262d;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
+.cc-log-clear-btn {
+    background: none;
+    border: 1px solid #30363d;
+    color: #484f58;
+    font-size: 10px;
+    border-radius: 4px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+}
+.cc-log-clear-btn:hover { color: #e6edf3; border-color: #8b949e; background: rgba(255,255,255,0.05); }
 .cc-log-entries {
     flex: 1;
     overflow-y: auto;
