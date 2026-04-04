@@ -240,6 +240,7 @@ class ComputerControl {
                 wc.sendInputEvent({ type: 'mouseUp', x: end.x, y: end.y, button: 'left', clickCount: 1 });
                 break;
             }
+            case 'open_web_browser':
             case 'navigate': {
                 const url = actionArgs.url || '';
                 this._log('navigate', `Navigate: ${url}`);
@@ -497,14 +498,11 @@ class ComputerControl {
                     // Take screenshot after action
                     const newScreenshot = await this.captureScreenshot();
                     const currentUrl = this.getCurrentUrl();
-                    const screenshotRef = `screenshot_${actionName}_${Date.now()}.png`;
-
                     const fr = {
                         name: actionName,
                         response: {
                             output: 'Action executed successfully',
-                            url: currentUrl,
-                            screenshot: { '$ref': screenshotRef }
+                            url: currentUrl
                         },
                         parts: [{
                             inlineData: {
