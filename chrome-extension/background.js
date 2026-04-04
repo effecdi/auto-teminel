@@ -6,6 +6,9 @@
 let attachedTabId = null;
 let ws = null;
 let wsUrl = 'ws://localhost:9999';
+let _reconnectTimer = null;
+let _reconnectDelay = 3000;
+let _autoReconnect = true;
 
 // ---- keepalive (service worker가 suspend되지 않도록) ----
 const keepAlive = () => setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
@@ -51,6 +54,10 @@ async function screenshot() {
 }
 
 async function navigate(url) {
+  // protocol 없으면 https:// 자동 추가
+  if (url && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('chrome://') && !url.startsWith('file://')) {
+    url = 'https://' + url;
+  }
   await cdp('Page.navigate', { url });
   // 로드 완료 대기
   await new Promise(res => setTimeout(res, 1000));
@@ -309,11 +316,13 @@ function wsSend(data) {
 }
 
 function connectWS(url) {
-  if (ws) { try { ws.close(); } catch (_) {} }
-  wsUrl = url || wsUrl;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+  if (url) wsUrl = url;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
+    _reconnectDelay = 3000; // 성공 시 딜레이 리셋
     broadcast({ type: 'ws-status', connected: true });
     wsSend({ type: 'hello', agent: 'auto-teminel-extension', version: '1.0.0' });
   };
@@ -321,10 +330,16 @@ function connectWS(url) {
   ws.onclose = () => {
     broadcast({ type: 'ws-status', connected: false });
     ws = null;
+    // 자동 재연결 (앱이 꺼져 있어도 주기적으로 재시도)
+    if (_autoReconnect) {
+      _reconnectTimer = setTimeout(() => connectWS(), _reconnectDelay);
+      _reconnectDelay = Math.min(Math.round(_reconnectDelay * 1.5), 30000); // 최대 30초
+    }
   };
 
   ws.onerror = () => {
     broadcast({ type: 'ws-status', connected: false, error: true });
+    // onerror 후 onclose가 따라오므로 여기서 재연결 불필요
   };
 
   ws.onmessage = async (event) => {
@@ -336,8 +351,14 @@ function connectWS(url) {
 }
 
 function disconnectWS() {
+  _autoReconnect = false;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   if (ws) { try { ws.close(); } catch (_) {} ws = null; }
 }
+
+// ====================== 시작 시 자동 연결 ======================
+_autoReconnect = true;
+connectWS();
 
 // ====================== IPC (popup ↔ background) ======================
 
@@ -345,6 +366,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case 'connect-ws':
+        _autoReconnect = true;
+        _reconnectDelay = 3000;
         connectWS(msg.url);
         sendResponse({ ok: true });
         break;
