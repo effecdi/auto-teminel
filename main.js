@@ -908,7 +908,7 @@ app.whenReady().then(() => {
     // ===================================================================
     //  Auto-Updater (electron-updater)
     // ===================================================================
-    autoUpdater.autoDownload = false;          // 사용자 확인 후 다운로드
+    autoUpdater.autoDownload = true;           // 렌더러 불능 시에도 업데이트 자동 다운로드
     autoUpdater.autoInstallOnAppQuit = false;   // 사용자 확인 후 설치
     // Skip code signing verification — app is unsigned
     if (process.platform === 'darwin') {
@@ -960,6 +960,11 @@ app.whenReady().then(() => {
         }
         _autoInstallTimer = setTimeout(() => {
             safelog('[Updater] Auto-installing now...');
+            // macOS: use custom installer (unsigned app — Squirrel.Mac code signature check fails)
+            if (process.platform === 'darwin' && _downloadedUpdateFile) {
+                safelog('[Updater] Using custom macOS installer:', _downloadedUpdateFile);
+                if (installMacOSUpdate(_downloadedUpdateFile)) return;
+            }
             try {
                 autoUpdater.quitAndInstall(false, true);
             } catch (err) {
@@ -985,9 +990,8 @@ app.whenReady().then(() => {
             });
         }
         // Fallback: if progress hits 100% but update-downloaded never fires
-        // (자동 설치 비활성화 — renderer에서 수동 설치 유도)
         if (progress.percent >= 99.9 && !_updateReadyToInstall) {
-            _updateReadyToInstall = true;
+            scheduleAutoInstall('progress-100%');
         }
     });
 
@@ -999,8 +1003,8 @@ app.whenReady().then(() => {
                 version: info.version
             });
         }
-        // 자동 재시작 비활성화 — renderer에서 사용자가 직접 설치
-        _updateReadyToInstall = true;
+        // 다운로드 완료 → 자동 설치 (렌더러 불능 시에도 동작)
+        scheduleAutoInstall('update-downloaded');
     });
 
     autoUpdater.on('error', (err) => {
