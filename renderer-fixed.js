@@ -5433,7 +5433,7 @@ function bcShowFindResult(results) {
     }
     el.style.display = 'block';
     el.innerHTML = results.map((r, i) =>
-        `<div style="padding:2px 0; border-bottom:1px solid #1a1a1a; cursor:pointer;" onclick="bcLog('${i+1}. <${r.tag}> ${(r.text||'').replace(/'/g,''').slice(0,40)}','info')">${i+1}. &lt;${r.tag}&gt; ${(r.text||'(no text)').slice(0,50)} <span style="color:#555;">(${r.x},${r.y})</span></div>`
+        `<div style="padding:2px 0; border-bottom:1px solid #1a1a1a; cursor:pointer;" onclick="bcLog('${i+1}. <${r.tag}> ${(r.text||'').replace(/'/g,'\u2019').slice(0,40)}','info')">${i+1}. &lt;${r.tag}&gt; ${(r.text||'(no text)').slice(0,50)} <span style="color:#555;">(${r.x},${r.y})</span></div>`
     ).join('');
 }
 
