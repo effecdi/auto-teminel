@@ -4700,6 +4700,8 @@ function toggleComputerControl() {
             setTimeout(() => ccUpdateBrowserBounds(), 100);
         });
     } else {
+        // Save current CC state before closing
+        ccSaveState(getCcId());
         // Hide CC, show Terminal
         if (ccContainer) ccContainer.style.display = 'none';
         if (terminalContainer) terminalContainer.style.display = '';
