@@ -3840,10 +3840,10 @@ case "$1" in
     _post "{\\"script\\":$SCRIPT}" execute
     ;;
   scroll)
-    _post "{\\"x\\":${2:-0},\\"y\\":${3:-300}}" scroll
+    _post "{\\"x\\":\${2:-0},\\"y\\":\${3:-300}}" scroll
     ;;
   scroll-up)
-    _post "{\\"x\\":0,\\"y\\":${2:--300}}" scroll
+    _post "{\\"x\\":0,\\"y\\":\${2:--300}}" scroll
     ;;
   url)
     _get url
