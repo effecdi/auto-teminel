@@ -15,9 +15,42 @@ const MODES = {
     },
     collab: {
         name: 'Collab (협업)',
-        description: 'Claude가 프로젝트 분석 → Gemini가 디자인 → Claude가 구현',
-        geminiSuffix: 'Claude가 분석한 프로젝트의 실제 코드가 위에 있습니다. 이 코드를 기반으로 디자인/CSS/UI를 수정하세요. 파일 경로와 전체 코드 블록을 포함하세요.',
-        claudeSuffix: 'Gemini(디자이너)가 제안한 디자인을 프로젝트에 실제로 적용하세요. 파일 경로와 전체 코드를 제공하세요.',
+        description: 'Claude가 프로젝트 분석 → Gemini가 디자인 스펙 → Claude가 구현',
+        geminiSuffix: `당신은 시니어 UI/UX 디자이너입니다. Claude가 분석한 프로젝트 구조와 현재 코드가 위에 있습니다.
+당신의 역할은 코드를 작성하는 것이 아니라 완전한 디자인 스펙을 정의하는 것입니다.
+아래 항목을 빠짐없이 명세하세요:
+
+## 레이아웃 & 구조
+- 전체 레이아웃 구조, 그리드 시스템, 반응형 브레이크포인트
+
+## 컬러 시스템
+- Primary / Secondary / Accent / Background / Surface / Border / Text 컬러값 (hex/rgba)
+- 다크/라이트 토큰 전부
+
+## 타이포그래피
+- 폰트 패밀리, 각 텍스트 레벨별 size/weight/line-height/letter-spacing
+
+## 간격 & 크기
+- spacing 토큰 (4px 기반 등), padding/margin 기준, border-radius 값
+
+## 컴포넌트 스펙
+- Button (primary/secondary/ghost/danger): 모든 상태(default/hover/active/disabled/focus)
+- Input / Textarea / Select / Checkbox / Radio / Toggle: 모든 상태
+- Form 레이아웃, label 위치, error/success 상태, placeholder 스타일
+- Card, Modal, Dropdown, Tooltip, Badge, Tag, Tab, Sidebar, Navbar
+
+## 인터랙션 & 애니메이션
+- transition duration/easing, hover 효과, focus ring, skeleton loading, 애니메이션 스펙
+
+## 아이콘 & 이미지
+- 아이콘 크기/스타일 기준, 이미지 비율/처리 방식
+
+코드를 쓰지 마세요. 모든 값을 구체적인 수치와 hex 코드로 명세하세요. Claude가 이 스펙을 그대로 코드로 구현합니다.`,
+        claudeSuffix: `Gemini(시니어 디자이너)가 위에서 완전한 디자인 스펙을 정의했습니다.
+당신의 역할: 이 스펙을 프로젝트 소스코드에 100% 그대로 구현하세요.
+- 스펙의 모든 값(컬러, 폰트, 간격, 컴포넌트 스타일)을 빠짐없이 적용
+- 수정할 파일 경로와 전체 코드를 제공
+- 임의로 디자인 결정 변경 금지 — Gemini 스펙이 최우선`,
     },
     review: {
         name: 'Review (리뷰)',
@@ -27,8 +60,37 @@ const MODES = {
     },
     pipeline: {
         name: 'Pipeline (파이프라인)',
-        description: 'Gemini가 기획/디자인 → Claude가 터미널에서 실행',
-        geminiSuffix: '기획/설계에 집중하세요. 구체적인 구현 계획, UI 명세, 파일 구조, 컴포넌트별 상세 명세, CSS/디자인 토큰, 구현 순서를 제시하세요. Claude가 이 설계를 바탕으로 직접 코드를 작성합니다.',
+        description: 'Gemini가 디자인 스펙 정의 → Claude가 터미널에서 직접 구현',
+        geminiSuffix: `당신은 시니어 UI/UX 디자이너입니다. 프로젝트의 현재 구조와 코드가 컨텍스트로 제공됩니다.
+당신의 역할은 코드를 작성하는 것이 아니라 완전한 디자인 스펙을 정의하는 것입니다.
+아래 항목을 빠짐없이 명세하세요:
+
+## 레이아웃 & 구조
+- 전체 레이아웃 구조, 그리드 시스템, 반응형 브레이크포인트
+
+## 컬러 시스템
+- Primary / Secondary / Accent / Background / Surface / Border / Text 컬러값 (hex/rgba)
+- 다크/라이트 토큰 전부
+
+## 타이포그래피
+- 폰트 패밀리, 각 텍스트 레벨별 size/weight/line-height/letter-spacing
+
+## 간격 & 크기
+- spacing 토큰 (4px 기반 등), padding/margin 기준, border-radius 값
+
+## 컴포넌트 스펙
+- Button (primary/secondary/ghost/danger): 모든 상태(default/hover/active/disabled/focus)
+- Input / Textarea / Select / Checkbox / Radio / Toggle: 모든 상태
+- Form 레이아웃, label 위치, error/success 상태, placeholder 스타일
+- Card, Modal, Dropdown, Tooltip, Badge, Tag, Tab, Sidebar, Navbar
+
+## 인터랙션 & 애니메이션
+- transition duration/easing, hover 효과, focus ring, skeleton loading, 애니메이션 스펙
+
+## 아이콘 & 이미지
+- 아이콘 크기/스타일 기준, 이미지 비율/처리 방식
+
+코드를 쓰지 마세요. 모든 값을 구체적인 수치와 hex 코드로 명세하세요. Claude가 이 스펙을 터미널에서 직접 파일에 구현합니다.`,
         claudeSuffix: '',
     },
 };
