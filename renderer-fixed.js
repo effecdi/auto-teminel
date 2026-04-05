@@ -873,9 +873,15 @@ function setupImageDragDrop() {
 // ===================================================================
 
 function setupClipboardPaste() {
+    let _lastPasteTime = 0;
     document.addEventListener('paste', async (e) => {
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea') return;
+
+        // 500ms 내 연속 paste 차단 (복사복사복사... 방지)
+        const now = Date.now();
+        if (now - _lastPasteTime < 500) return;
+        _lastPasteTime = now;
 
         // Check for image in clipboard
         const img = clipboard.readImage();
@@ -3937,6 +3943,12 @@ async function sendTask() {
     const text = textarea.value.trim();
     if (!text) return;
 
+    // 비정상적으로 긴 텍스트 차단 (반복 붙여넣기 방지)
+    if (text.length > 3000) {
+        showToast(`⚠ 입력이 너무 깁니다 (${text.length}자). 내용을 확인하세요.`, 'error');
+        return;
+    }
+
     const targetProject = currentProject;
     if (!targetProject) {
         showToast('Select a project first', 'error');
@@ -4177,9 +4189,12 @@ function renderTaskList() {
     }
 
     // DOM diffing: reuse existing items to avoid CSS animation resets (prevents flickering)
+    // IMPORTANT: only select DIRECT children of the list — not nested buttons which also have data-task-id
     const existingMap = new Map();
-    list.querySelectorAll('[data-task-id]').forEach(el => {
-        existingMap.set(parseInt(el.dataset.taskId), el);
+    Array.from(list.children).forEach(el => {
+        if (el.dataset && el.dataset.taskId) {
+            existingMap.set(parseInt(el.dataset.taskId), el);
+        }
     });
 
     // Remove items that no longer exist in queue
