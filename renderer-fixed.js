@@ -3943,12 +3943,6 @@ async function sendTask() {
     const text = textarea.value.trim();
     if (!text) return;
 
-    // 비정상적으로 긴 텍스트 차단 (반복 붙여넣기 방지)
-    if (text.length > 3000) {
-        showToast(`⚠ 입력이 너무 깁니다 (${text.length}자). 내용을 확인하세요.`, 'error');
-        return;
-    }
-
     const targetProject = currentProject;
     if (!targetProject) {
         showToast('Select a project first', 'error');
