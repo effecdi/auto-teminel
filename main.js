@@ -1257,6 +1257,13 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
                             entry._readyFallback = null;
                         }
                         console.log(`[Main] Claude CLI ready (output-detected) for ${projectId}`);
+                        // Mark running tasks as done immediately — don't wait for 5s idle timer.
+                        // This eliminates the ~5.5s delay before the next queued task can dispatch.
+                        taskQueue.markIdle(projectId);
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('terminal.idle', { projectId });
+                        }
+                        broadcastEvent('terminal.idle', projectId);
                         taskQueue.process();
                     }
                 }

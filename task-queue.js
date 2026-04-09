@@ -82,7 +82,7 @@ class TaskQueue {
         if (completed) {
             this._notify();
             // Advance queue after short delay for stability
-            setTimeout(() => this.process(), 500);
+            setTimeout(() => this.process(), 50);
         }
         return completed;
     }
