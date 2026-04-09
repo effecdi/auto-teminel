@@ -77,11 +77,20 @@ fi
 echo -e "${CYAN}----------------------------------------${NC}"
 
 if [ -n "$PUBLISH_FLAG" ]; then
+  # electron-builder creates releases as draft — publish it so auto-updater can detect
+  echo -e "${CYAN}[5/5] Draft 릴리스 퍼블리시...${NC}"
+  gh release edit "v${NEW_VERSION}" --draft=false 2>/dev/null && \
+    echo -e "${GREEN}  → 릴리스 퍼블리시 완료${NC}" || \
+    echo -e "${YELLOW}  → gh CLI 없거나 실패 — GitHub에서 수동으로 Draft 해제 필요${NC}"
+
+  # auto push
+  echo -e "${CYAN}[6/6] Git push...${NC}"
+  git push origin main && git push origin "v${NEW_VERSION}" && \
+    echo -e "${GREEN}  → push 완료${NC}" || \
+    echo -e "${RED}  → push 실패${NC}"
+
   echo -e "${GREEN}[완료] v${CURRENT_VERSION} → v${NEW_VERSION} GitHub Release 배포 성공!${NC}"
   echo -e "${CYAN}  → https://github.com/effecdi/auto-teminel/releases/tag/v${NEW_VERSION}${NC}"
-  echo ""
-  echo -e "${YELLOW}[NOTE] git push를 하려면:${NC}"
-  echo -e "  git push origin main && git push origin v${NEW_VERSION}"
 else
   echo -e "${GREEN}[완료] v${CURRENT_VERSION} → v${NEW_VERSION} 로컬 빌드 성공!${NC}"
 fi
