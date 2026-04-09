@@ -34,6 +34,7 @@ process.on('uncaughtException', (err) => {
 
 const store = new Store();
 let mainWindow;
+let _forceClose = false;  // Skip close-confirmation when updater or user already confirmed
 
 // Computer Control instances — one per session (keyed by arbitrary id)
 const computerControls = new Map();
@@ -832,6 +833,73 @@ function createWindow() {
     if (process.argv.includes('--dev')) {
         mainWindow.webContents.openDevTools();
     }
+
+    // ── Crash protection: renderer process recovery ──────────────────
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        console.error(`[CrashGuard] Renderer process gone: reason=${details.reason}, exitCode=${details.exitCode}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            // oom / crashed / killed → reload automatically
+            dialog.showMessageBox({
+                type: 'error',
+                title: '렌더러 프로세스 충돌',
+                message: `화면이 비정상 종료되었습니다.\n사유: ${details.reason} (code ${details.exitCode})\n확인을 누르면 재로딩합니다.`,
+                buttons: ['확인']
+            }).then(() => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.reload();
+                    console.log('[CrashGuard] Renderer reloaded after crash');
+                }
+            });
+        } else {
+            // Window itself was destroyed — recreate
+            console.log('[CrashGuard] Window destroyed, recreating...');
+            createWindow();
+        }
+    });
+
+    mainWindow.webContents.on('unresponsive', () => {
+        console.error('[CrashGuard] Renderer became unresponsive');
+        const choice = dialog.showMessageBoxSync(mainWindow, {
+            type: 'warning',
+            buttons: ['기다리기', '재로딩'],
+            defaultId: 0,
+            title: '앱 응답 없음',
+            message: '앱이 응답하지 않습니다.\n잠시 기다리거나 재로딩할 수 있습니다.'
+        });
+        if (choice === 1) {
+            mainWindow.webContents.reload();
+            console.log('[CrashGuard] Renderer reloaded (unresponsive)');
+        }
+    });
+
+    mainWindow.webContents.on('responsive', () => {
+        console.log('[CrashGuard] Renderer became responsive again');
+    });
+
+    // ── Close protection: confirm when active sessions exist ─────────
+    mainWindow.on('close', (e) => {
+        if (_forceClose) return; // Already confirmed or updater-triggered
+
+        let activeCount = 0;
+        for (const [, entry] of ptyPool) {
+            if (entry.alive) activeCount++;
+        }
+        if (activeCount === 0) return; // No active sessions — allow close
+
+        e.preventDefault();
+        const choice = dialog.showMessageBoxSync(mainWindow, {
+            type: 'warning',
+            buttons: ['종료', '취소'],
+            defaultId: 1,
+            cancelId: 1,
+            title: '실행 중인 세션이 있습니다',
+            message: `${activeCount}개의 터미널 세션이 실행 중입니다.\n정말 종료하시겠습니까?`
+        });
+        if (choice === 0) {
+            _forceClose = true;
+            mainWindow.close();
+        }
+    });
 
     mainWindow.on('closed', () => {
         // Save active session projects before destroying
@@ -3233,6 +3301,7 @@ rm -f "${scriptPath}"
         const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
         child.unref();
         safelog(`[Updater] Custom installer started: ${zipPath} → ${appBundlePath}`);
+        _forceClose = true;  // Bypass close-confirmation for updater
         setTimeout(() => app.quit(), 400);
         return true;
     } catch (err) {
@@ -3254,6 +3323,7 @@ ipcMain.handle('updater.download', () => {
 
 ipcMain.handle('updater.install', () => {
     safelog('[Updater] quitAndInstall requested');
+    _forceClose = true;  // Bypass close-confirmation for updater
     // macOS: use custom installer to bypass Squirrel.Mac code signature requirement
     if (process.platform === 'darwin') {
         let zipPath = _downloadedUpdateFile;
