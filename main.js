@@ -989,9 +989,10 @@ app.whenReady().then(() => {
                 total: progress.total
             });
         }
-        // Fallback: if progress hits 100% but update-downloaded never fires
+        // progress 100% 도달 시 ready 플래그만 세팅 (자동 설치 안 함 — 사용자 확인 필요)
         if (progress.percent >= 99.9 && !_updateReadyToInstall) {
-            scheduleAutoInstall('progress-100%');
+            _updateReadyToInstall = true;
+            safelog('[Updater] Download progress 100% — waiting for user to confirm install');
         }
     });
 
@@ -1003,8 +1004,9 @@ app.whenReady().then(() => {
                 version: info.version
             });
         }
-        // 다운로드 완료 → 자동 설치 (렌더러 불능 시에도 동작)
-        scheduleAutoInstall('update-downloaded');
+        // 다운로드 완료 → 사용자가 배너에서 "설치" 버튼 누를 때까지 대기
+        _updateReadyToInstall = true;
+        safelog('[Updater] Update ready to install — waiting for user confirmation');
     });
 
     autoUpdater.on('error', (err) => {
