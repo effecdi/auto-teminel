@@ -105,6 +105,25 @@ const LEARN_RECOMMENDATION_BUTTONS = [
     '이 코드의 성능 개선 포인트를 알려줘',
 ];
 
+// Learn Mode — Skill Profile
+const SKILL_CATEGORIES = [
+    { id: 'html', name: 'HTML' },
+    { id: 'css', name: 'CSS' },
+    { id: 'javascript', name: 'JavaScript' },
+    { id: 'react', name: 'React' },
+    { id: 'typescript', name: 'TypeScript' },
+    { id: 'nextjs', name: 'Next.js' },
+    { id: 'vue', name: 'Vue' },
+    { id: 'flutter', name: 'Flutter' },
+    { id: 'react-native', name: 'React Native' },
+    { id: 'nodejs', name: 'Node.js' },
+    { id: 'csharp', name: 'C#' },
+    { id: 'python', name: 'Python' },
+    { id: 'git', name: 'Git' },
+    { id: 'security', name: '보안' },
+];
+const SKILL_LEVELS = ['모름', '입문', '기초', '중급', '고급'];
+
 // Learn Mode — Quiz state
 const _parsedQuizzes = new Map(); // quizId → quiz data
 const MASTERY_LEVELS = {
@@ -264,7 +283,12 @@ async function init() {
                 if (aiModeEl && aiSettings.aiDefaultAiMode) aiModeEl.value = aiSettings.aiDefaultAiMode;
                 // Learn mode progress panel visibility
                 if (debateModeEl) {
-                    debateModeEl.addEventListener('change', () => renderLearnProgressPanel());
+                    debateModeEl.addEventListener('change', () => {
+                        renderLearnProgressPanel();
+                        if (debateModeEl.value === 'learn') {
+                            checkLearnModeReady();
+                        }
+                    });
                     renderLearnProgressPanel();
                 }
             }
@@ -2884,6 +2908,13 @@ async function sendAiMessage() {
     const aiMode = document.getElementById('aiAiMode').value;
     const operationType = document.getElementById('aiOperationType').value;
 
+    // Learn mode: ensure skill profile exists
+    if (debateMode === 'learn' && !getSkillProfile()) {
+        showSkillProfileModal(() => sendAiMessage());
+        textarea.value = text; // restore text
+        return;
+    }
+
     const hasStarted = aiChatStarted.get(projectId);
 
     // Upload media files to Gemini File API
@@ -2928,6 +2959,14 @@ async function sendAiMessage() {
     if (attachedMediaFiles.length > 0) {
         const mediaNames = attachedMediaFiles.map(f => f.fileName).join(', ');
         messageText = `[첨부된 미디어: ${mediaNames}]\n\n${messageText}`;
+    }
+
+    // Learn mode: prepend skill profile to message
+    if (debateMode === 'learn') {
+        const skillText = buildSkillProfileText();
+        if (skillText) {
+            messageText = skillText + messageText;
+        }
     }
 
     try {
@@ -3797,6 +3836,100 @@ function renderLearnProgressPanel() {
 function toggleLearnProgress() {
     const panel = document.getElementById('learnProgressPanel');
     if (panel) panel.classList.toggle('expanded');
+}
+
+/** Get saved skill profile from localStorage */
+function getSkillProfile() {
+    try {
+        const raw = localStorage.getItem('learnSkillProfile');
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+}
+
+/** Save skill profile to localStorage */
+function saveSkillProfile(profile) {
+    localStorage.setItem('learnSkillProfile', JSON.stringify(profile));
+}
+
+/** Build skill profile text for AI prompt */
+function buildSkillProfileText() {
+    const profile = getSkillProfile();
+    if (!profile) return '';
+    const lines = SKILL_CATEGORIES.map(cat => {
+        const level = profile[cat.id] !== undefined ? SKILL_LEVELS[profile[cat.id]] : '모름';
+        return `${cat.name}: ${level}`;
+    });
+    return `[학생 스킬 프로필]\n${lines.join(', ')}\n\n위 수준에 맞춰서 설명해주세요. 잘 모르는 기술은 기초부터, 아는 기술은 심화 위주로.\n\n`;
+}
+
+/** Show skill profile modal */
+function showSkillProfileModal(onSave) {
+    const existing = document.querySelector('.skill-profile-overlay');
+    if (existing) existing.remove();
+
+    const profile = getSkillProfile() || {};
+    const overlay = document.createElement('div');
+    overlay.className = 'skill-profile-overlay';
+
+    const itemsHtml = SKILL_CATEGORIES.map(cat => {
+        const currentLevel = profile[cat.id] !== undefined ? profile[cat.id] : -1;
+        const btns = SKILL_LEVELS.map((name, idx) =>
+            `<button class="sp-level-btn ${idx === currentLevel ? 'active' : ''}" data-skill="${cat.id}" data-level="${idx}" onclick="selectSkillLevel(this)">${name}</button>`
+        ).join('');
+        return `<div class="sp-item"><div class="sp-item-label">${cat.name}</div><div class="sp-levels">${btns}</div></div>`;
+    }).join('');
+
+    overlay.innerHTML = `
+        <div class="skill-profile-modal">
+            <h2>📋 내 개발 스킬 프로필</h2>
+            <div class="sp-desc">각 기술별 현재 수준을 선택해주세요. AI가 니 레벨에 맞춰서 코드를 분석하고 설명해줌.</div>
+            <div class="sp-grid">${itemsHtml}</div>
+            <button class="sp-save-btn" onclick="saveSkillProfileFromModal()">저장하고 학습 시작</button>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    overlay._onSave = onSave;
+}
+
+/** Handle skill level button click in modal */
+function selectSkillLevel(btn) {
+    const siblings = btn.closest('.sp-levels').querySelectorAll('.sp-level-btn');
+    siblings.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+/** Save skill profile from modal and close */
+function saveSkillProfileFromModal() {
+    const overlay = document.querySelector('.skill-profile-overlay');
+    if (!overlay) return;
+
+    const profile = {};
+    overlay.querySelectorAll('.sp-level-btn.active').forEach(btn => {
+        profile[btn.dataset.skill] = parseInt(btn.dataset.level);
+    });
+
+    // Default unset skills to 0 (모름)
+    SKILL_CATEGORIES.forEach(cat => {
+        if (profile[cat.id] === undefined) profile[cat.id] = 0;
+    });
+
+    saveSkillProfile(profile);
+    overlay.remove();
+
+    if (overlay._onSave) overlay._onSave(profile);
+}
+
+/** Check if skill profile exists when entering learn mode */
+function checkLearnModeReady(callback) {
+    const profile = getSkillProfile();
+    if (!profile) {
+        showSkillProfileModal(() => { if (callback) callback(); });
+    } else {
+        if (callback) callback();
+    }
 }
 
 /** Copy code block content to clipboard */
