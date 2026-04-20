@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Meeting Canvas</title>
+<style>
+/* ─── Reset & Base ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #2DD4BF;
+  --primary-light: #CCFBF1;
+  --primary-dark: #0D9488;
+  --bg: #FAFAFA;
+  --card-bg: #FFFFFF;
+  --border: #E5E7EB;
+  --text: #1F2937;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+  --accent-red: #F87171;
+  --accent-blue: #60A5FA;
+  --accent-gold: #FBBF24;
+  --accent-purple: #A78BFA;
+  --accent-pink: #F472B6;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+html { font-size: 15px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Header / Prompt Bar ─── */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+}
+.header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.logo {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.logo span { font-size: 1.3rem; }
+.prompt-bar {
+  display: flex;
+  gap: 8px;
+}
+.prompt-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+  background: var(--card-bg);
+}
+.prompt-input:focus {
+  border-color: var(--primary);
+}
+.prompt-input::placeholder { color: var(--text-muted); }
+.prompt-btn {
+  padding: 12px 24px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+.prompt-btn:hover { background: var(--primary-dark); }
+.prompt-btn:active { transform: scale(0.97); }
+.prompt-btn:disabled {
+  background: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* ─── Quick Tags ─── */
+.quick-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.quick-tag {
+  padding: 4px 12px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border: none;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.quick-tag:hover { background: var(--primary); color: white; }
+
+/* ─── Canvas Container ─── */
+.canvas-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.canvas-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.canvas-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+}
+.canvas-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ─── Section Card ─── */
+.section {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.2s;
+}
+.section:hover { box-shadow: var(--shadow-lg); }
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title .emoji { font-size: 1.2rem; }
+.section-toggle {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  transition: transform 0.3s;
+}
+.section-toggle.collapsed { transform: rotate(-90deg); }
+.section-body {
+  margin-top: 16px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+.section-body.collapsed {
+  max-height: 0 !important;
+  margin-top: 0;
+  overflow: hidden;
+}
+.section-progress {
+  font-size: 0.8rem;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+/* ─── Check Item ─── */
+.check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.check-item:last-child { border-bottom: none; }
+.check-item input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.check-item label {
+  flex: 1;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.check-item label.checked {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.check-item .field {
+  flex: 1;
+  max-width: 300px;
+}
+
+/* ─── Input Fields ─── */
+.field-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  background: #F9FAFB;
+}
+.field-input:focus { border-color: var(--primary); background: white; }
+.field-input::placeholder { color: var(--text-muted); }
+
+textarea.field-input {
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.field-group {
+  margin-bottom: 14px;
+}
+.field-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* ─── Chip Selection ─── */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chip {
+  padding: 8px 16px;
+  border: 2px solid var(--border);
+  border-radius: 24px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  user-select: none;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary-dark); }
+.chip.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+.chip-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* ─── Reference Images ─── */
+.ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.ref-card {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.ref-card:hover { border-color: var(--primary); }
+.ref-card.has-image { border-style: solid; padding: 0; }
+.ref-card.has-image img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: calc(var(--radius) - 2px);
+}
+.ref-card .ref-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 4px 8px;
+}
+.ref-card .ref-add {
+  font-size: 2rem;
+  color: var(--text-muted);
+}
+.ref-card .ref-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.5);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ref-url-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+
+/* ─── Color Swatches ─── */
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.color-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.selected { border-color: var(--text); transform: scale(1.15); }
+.color-custom {
+  width: 36px;
+  height: 36px;
+  border: 2px dashed var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: var(--text-muted);
+  position: relative;
+  overflow: hidden;
+}
+.color-custom input[type="color"] {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ─── Free Memo ─── */
+.memo-area {
+  width: 100%;
+  min-height: 120px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  background: #FFFEF5;
+  line-height: 1.7;
+  transition: border-color 0.2s;
+}
+.memo-area:focus { border-color: var(--primary); }
+
+/* ─── Loading ─── */
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: var(--text-secondary);
+}
+.loading .spinner {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Empty State ─── */
+.empty-state {
+  text-align: center;
+  padding: 80px 24px;
+  color: var(--text-muted);
+}
+.empty-state .big-icon { font-size: 4rem; margin-bottom: 16px; }
+.empty-state h2 { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 8px; }
+.empty-state p { font-size: 0.95rem; line-height: 1.6; }
+
+/* ─── API Key Modal ─── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: white;
+  border-radius: var(--radius);
+  padding: 32px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+.modal h3 { margin-bottom: 12px; }
+.modal p { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px; }
+.modal input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-btns button {
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: none;
+}
+.modal-btns .btn-cancel { background: var(--border); color: var(--text); }
+.modal-btns .btn-save { background: var(--primary); color: white; font-weight: 600; }
+
+/* ─── Print ─── */
+@media print {
+  .header, .quick-tags, .prompt-bar, .section-toggle, .section-progress { display: none !important; }
+  .section { break-inside: avoid; box-shadow: none; border: 1px solid #ddd; }
+  .section-body.collapsed { max-height: none !important; display: block !important; }
+  body { background: white; }
+  .canvas-container { padding: 0; }
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 640px) {
+  .header { padding: 12px 16px; }
+  .canvas-container { padding: 16px; }
+  .section { padding: 16px; }
+  .ref-grid { grid-template-columns: repeat(2, 1fr); }
+  .chip { padding: 6px 12px; font-size: 0.8rem; }
+  .prompt-btn { padding: 12px 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header / Prompt Bar -->
+<div class="header">
+  <div class="header-inner">
+    <div class="logo"><span>📋</span> AI Meeting Canvas</div>
+    <div class="prompt-bar">
+      <input type="text" class="prompt-input" id="promptInput" placeholder="미팅 주제를 입력하세요 (예: 로고디자인 미팅, 개발 킥오프, 투자 피칭)" />
+      <button class="prompt-btn" id="generateBtn" onclick="handleGenerate()">생성</button>
+    </div>
+    <div class="quick-tags">
+      <button class="quick-tag" onclick="quickFill('로고디자인 미팅')">🎨 로고디자인</button>
+      <button class="quick-tag" onclick="quickFill('브랜딩 미팅')">💎 브랜딩</button>
+      <button class="quick-tag" onclick="quickFill('웹사이트 디자인 미팅')">🌐 웹디자인</button>
+      <button class="quick-tag" onclick="quickFill('앱 개발 킥오프 미팅')">📱 앱 개발</button>
+      <button class="quick-tag" onclick="quickFill('투자 피칭 미팅')">💰 투자 피칭</button>
+      <button class="quick-tag" onclick="quickFill('UI/UX 리뷰 미팅')">🎯 UX 리뷰</button>
+    </div>
+  </div>
+</div>
+
+<!-- Canvas Area -->
+<div class="canvas-container" id="canvasArea">
+  <div class="empty-state" id="emptyState">
+    <div class="big-icon">✨</div>
+    <h2>미팅 주제를 입력하면 캔버스가 생성됩니다</h2>
+    <p>AI가 미팅에 필요한 체크리스트, 작성 양식, 레퍼런스를<br>자동으로 구성합니다.</p>
+  </div>
+</div>
+
+<!-- API Key Modal -->
+<div class="modal-overlay" id="apiModal">
+  <div class="modal">
+    <h3>🔑 Gemini API Key</h3>
+    <p>커스텀 미팅 캔버스를 생성하려면 Gemini API 키가 필요합니다.<br>로고디자인 미팅은 키 없이 바로 사용 가능합니다.</p>
+    <input type="password" id="apiKeyInput" placeholder="Gemini API Key를 입력하세요" />
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeModal()">취소</button>
+      <button class="btn-save" onclick="saveApiKey()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───
+let canvasState = {};
+const STORAGE_KEY = 'meeting-canvas-state';
+const API_KEY_STORAGE = 'meeting-canvas-api-key';
+
+// ─── Logo Design Meeting Template ───
+const LOGO_TEMPLATE = {
+  title: '🎨 로고디자인 미팅',
+  subtitle: '클라이언트와의 로고 디자인 브리핑 — 모든 항목을 확인하고 작성하세요',
+  sections: [
+    {
+      id: 'client-info',
+      emoji: '🏢',
+      title: '클라이언트 / 비즈니스 정보',
+      items: [
+        { type: 'field', label: '회사/브랜드명', placeholder: '예: ABC Studio' },
+        { type: 'field', label: '브랜드명의 의미', placeholder: '이름에 담긴 뜻이나 스토리' },
+        { type: 'field', label: '슬로건/태그라인', placeholder: '예: Design that matters' },
+        { type: 'field', label: '업종/분야', placeholder: '예: IT, F&B, 패션, 뷰티' },
+        { type: 'field', label: '회사 규모', placeholder: '예: 1인, 스타트업 5명, 중소기업' },
+        { type: 'field', label: '주요 제품/서비스', placeholder: '' },
+        { type: 'check', label: '신규 브랜딩 (처음 만드는 로고)' },
+        { type: 'check', label: '리브랜딩 (기존 로고 변경)' },
+        { type: 'check', label: '리프레시 (기존 로고 개선)' },
+        { type: 'field', label: '기존 로고가 있다면 문제점', placeholder: '예: 너무 복잡하다, 시대에 뒤떨어진다' },
+      ]
+    },
+    {
+      id: 'brand-identity',
+      emoji: '💎',
+      title: '브랜드 아이덴티티',
+      items: [
+        { type: 'field', label: '브랜드 미션 (한 줄)', placeholder: '예: 디자인으로 세상을 더 아름답게' },
+        { type: 'field', label: '핵심 가치 (3~5개)', placeholder: '예: 혁신, 신뢰, 심플함, 따뜻함' },
+        { type: 'field', label: '브랜드 성격 (형용사 3~5개)', placeholder: '예: 모던한, 세련된, 친근한, 프로페셔널한' },
+        { type: 'field', label: '브랜드 포지셔닝', placeholder: '예: 프리미엄, 합리적, 대중적, 럭셔리' },
+        { type: 'field', label: '전달하고 싶은 감정', placeholder: '예: 신뢰감, 설렘, 편안함' },
+        { type: 'field', label: '경쟁사 (2~3개)', placeholder: '예: 회사A, 회사B' },
+        { type: 'field', label: '차별화 포인트', placeholder: '경쟁사와 다른 점' },
+      ]
+    },
+    {
+      id: 'target',
+      emoji: '🎯',
+      title: '타겟 고객',
+      items: [
+        { type: 'field', label: '주요 타겟 고객', placeholder: '예: 20~30대 여성, IT 스타트업 대표' },
+        { type: 'field', label: '연령대', placeholder: '예: 25~35세' },
+        { type: 'field', label: '성별', placeholder: '예: 여성 위주, 남녀 모두' },
+        { type: 'field', label: '라이프스타일/가치관', placeholder: '예: 미니멀 라이프, 친환경 관심' },
+        { type: 'field', label: '고객의 니즈/문제', placeholder: '타겟이 해결하고 싶은 것' },
+      ]
+    },
+    {
+      id: 'logo-style',
+      emoji: '✏️',
+      title: '원하는 로고 스타일',
+      items: [
+        { type: 'chips', label: '로고 스타일 선택 (복수 가능)', hint: '미선택 시 랜덤 4가지 스타일로 시안 제작', options: [
+          '미니멀', '기하학적', '마스코트형', '워드마크', '엠블럼', '추상적',
+          '심볼형(단순)', '심볼형(세련된)', '라인형', '컬러형', '귀여운 캐릭터형', '플랫 디자인'
+        ]},
+        { type: 'chips', label: '분위기', options: [
+          '모던', '클래식', '트렌디', '레트로', '고급스러운', '캐주얼', '유니크', '심플'
+        ]},
+        { type: 'field', label: '추가 스타일 요청사항', placeholder: '예: 각진 느낌보다 둥근 느낌 원함' },
+      ]
+    },
+    {
+      id: 'color',
+      emoji: '🎨',
+      title: '컬러 선호도',
+      items: [
+        { type: 'colors', label: '선호 컬러 (복수 선택 가능)', colors: [
+          '#1A1A2E', '#E74C3C', '#E67E22', '#F1C40F', '#2ECC71', '#1ABC9C',
+          '#3498DB', '#2C3E50', '#9B59B6', '#E91E63', '#795548', '#607D8B'
+        ]},
+        { type: 'field', label: '절대 피해야 할 컬러', placeholder: '예: 분홍색, 형광색' },
+        { type: 'check', label: '흑백(모노크롬)에서도 잘 보여야 함' },
+        { type: 'check', label: '업종 관례 컬러 고려 필요 (예: 식품=빨강/초록)' },
+        { type: 'field', label: '컬러 관련 추가 요청', placeholder: '' },
+      ]
+    },
+    {
+      id: 'typography',
+      emoji: '🔤',
+      title: '타이포그래피',
+      items: [
+        { type: 'chips', label: '폰트 스타일 선호', options: [
+          '산세리프 (깔끔)', '세리프 (클래식)', '손글씨체', '고딕', '커스텀 레터링', '볼드', '라이트/씬'
+        ]},
+        { type: 'chips', label: '대소문자', options: [
+          '전체 대문자', '전체 소문자', '일반 (첫글자 대문자)', '상관없음'
+        ]},
+        { type: 'field', label: '참고 폰트 또는 요청사항', placeholder: '예: Futura 느낌, 한글은 프리텐다드' },
+      ]
+    },
+    {
+      id: 'reference',
+      emoji: '📌',
+      title: '참고 레퍼런스',
+      items: [
+        { type: 'refs', label: '참고 레퍼런스 (최대 4장)', hint: '좋아하는 로고나 디자인 스타일 이미지를 첨부하세요', maxRefs: 4, samples: [
+          { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/1200px-Google_2015_logo.svg.png', label: 'Google — 워드마크' },
+          { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/1200px-Amazon_logo.svg.png', label: 'Amazon — 워드마크+심볼' },
+          { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Apple_logo_black.svg/800px-Apple_logo_black.svg.png', label: 'Apple — 심볼형' },
+          { url: 'https://upload.wikimedia.org/wikipedia/en/thumb/3/37/Jumpman_logo.svg/800px-Jumpman_logo.svg.png', label: 'Jordan — 추상적' },
+        ]},
+        { type: 'field', label: '좋아하는 브랜드 (참고용)', placeholder: '예: Apple, Nike, 무인양품 — 이유도 적어주세요' },
+        { type: 'field', label: '싫어하는 스타일', placeholder: '예: 너무 화려한 것, 90년대 느낌' },
+      ]
+    },
+    {
+      id: 'usage',
+      emoji: '📱',
+      title: '사용처 / 적용 매체',
+      items: [
+        { type: 'check', label: '웹사이트' },
+        { type: 'check', label: '명함' },
+        { type: 'check', label: '소셜미디어 (인스타, 유튜브 등)' },
+        { type: 'check', label: '앱 아이콘' },
+        { type: 'check', label: '간판/사이니지' },
+        { type: 'check', label: '포장/패키지' },
+        { type: 'check', label: '유니폼/의류' },
+        { type: 'check', label: '차량 래핑' },
+        { type: 'check', label: '영상/애니메이션' },
+        { type: 'check', label: '도장/봉투/레터헤드' },
+        { type: 'field', label: '기타 적용처', placeholder: '' },
+      ]
+    },
+    {
+      id: 'deliverables',
+      emoji: '📦',
+      title: '납품물 / 파일 형식',
+      items: [
+        { type: 'check', label: 'AI (Adobe Illustrator 원본)' },
+        { type: 'check', label: 'SVG (웹/디지털용 벡터)' },
+        { type: 'check', label: 'PDF (범용)' },
+        { type: 'check', label: 'PNG (투명배경)' },
+        { type: 'check', label: 'JPG (일반용)' },
+        { type: 'check', label: 'EPS (인쇄용)' },
+        { type: 'check', label: 'RGB + CMYK 버전' },
+        { type: 'check', label: '가로형 / 세로형 버전' },
+        { type: 'check', label: '흑백 / 반전 버전' },
+        { type: 'check', label: '아이콘(마크) 단독 버전' },
+        { type: 'check', label: '브랜드 가이드라인 문서' },
+        { type: 'field', label: '추가 납품 요청', placeholder: '' },
+      ]
+    },
+    {
+      id: 'timeline',
+      emoji: '📅',
+      title: '일정 / 예산',
+      items: [
+        { type: 'field', label: '프로젝트 시작일', placeholder: '예: 2026-04-17' },
+        { type: 'field', label: '1차 시안 전달 희망일', placeholder: '' },
+        { type: 'field', label: '최종 마감일', placeholder: '' },
+        { type: 'field', label: '로고 공개/런칭일', placeholder: '' },
+        { type: 'field', label: '총 예산', placeholder: '예: 50만원, 100~200만원' },
+        { type: 'field', label: '결제 조건', placeholder: '예: 선금 50% + 완료 후 50%' },
+        { type: 'field', label: '시안 수', placeholder: '예: 3개 시안' },
+        { type: 'field', label: '수정 횟수', placeholder: '예: 2회 포함, 추가 수정 건당 5만원' },
+      ]
+    },
+    {
+      id: 'revision',
+      emoji: '🔄',
+      title: '수정 및 피드백 정책',
+      items: [
+        { type: 'field', label: '포함 수정 횟수', placeholder: '예: 2회' },
+        { type: 'field', label: '추가 수정 비용', placeholder: '예: 건당 5만원' },
+        { type: 'field', label: '피드백 방법', placeholder: '예: 메일, 카톡, 화상미팅' },
+        { type: 'field', label: '최종 승인권자', placeholder: '예: 대표이사, 마케팅팀장' },
+        { type: 'field', label: '승인 프로세스', placeholder: '예: 팀 내부 검토 → 대표 최종 승인' },
+        { type: 'check', label: '저작권 전부 양도 (완료 시)' },
+        { type: 'check', label: '포트폴리오 게재 허용' },
+      ]
+    },
+    {
+      id: 'memo',
+      emoji: '📝',
+      title: '자유 메모',
+      items: [
+        { type: 'memo', placeholder: '미팅 중 추가 메모, 아이디어, 클라이언트 요청사항 등을 자유롭게 작성하세요...' },
+      ]
+    }
+  ]
+};
+
+// ─── Render Functions ───
+function renderCanvas(template) {
+  _itemCounters = {};
+  const area = document.getElementById('canvasArea');
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  let html = `
+    <div class="canvas-title">${template.title}</div>
+    <div class="canvas-subtitle">${template.subtitle}</div>
+    <div class="canvas-meta">
+      <span>📅 ${today}</span>
+      <span>📋 ${template.sections.length}개 섹션</span>
+    </div>
+  `;
+
+  for (const section of template.sections) {
+    html += renderSection(section);
+  }
+
+  area.innerHTML = html;
+  restoreState();
+  updateAllProgress();
+}
+
+function renderSection(section) {
+  let bodyHtml = '';
+  for (const item of section.items) {
+    bodyHtml += renderItem(section.id, item);
+  }
+
+  return `
+    <div class="section" id="section-${section.id}">
+      <div class="section-header" onclick="toggleSection('${section.id}')">
+        <div class="section-title">
+          <span class="emoji">${section.emoji}</span>
+          ${section.title}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="section-progress" id="progress-${section.id}"></span>
+          <span class="section-toggle" id="toggle-${section.id}">▾</span>
+        </div>
+      </div>
+      <div class="section-body" id="body-${section.id}">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+}
+
+let _itemCounters = {};
+function renderItem(sectionId, item) {
+  const counterKey = `${sectionId}-${item.type}`;
+  _itemCounters[counterKey] = (_itemCounters[counterKey] || 0) + 1;
+  const uid = `${sectionId}-${item.type}-${_itemCounters[counterKey]}`;
+
+  switch (item.type) {
+    case 'check':
+      return `
+        <div class="check-item">
+          <input type="checkbox" id="${uid}" data-section="${sectionId}" onchange="onCheckChange(this)" />
+          <label for="${uid}">${item.label}</label>
+        </div>`;
+
+    case 'field':
+      return `
+        <div class="field-group">
+          <label class="field-label">${item.label}</label>
+          <input type="text" class="field-input" data-section="${sectionId}" data-label="${item.label}" placeholder="${item.placeholder || ''}" oninput="onFieldChange(this)" />
+        </div>`;
+
+    case 'chips':
+      const chipsHtml = item.options.map(opt =>
+        `<div class="chip" data-section="${sectionId}" data-group="${item.label}" onclick="toggleChip(this)">${opt}</div>`
+      ).join('');
+      return `
+        <div class="field-group">
+          <label class="field-label">${item.label}</label>
+          <div class="chip-group">${chipsHtml}</div>
+          ${item.hint ? `<div class="chip-hint">${item.hint}</div>` : ''}
+        </div>`;
+
+    case 'colors':
+      const swatches = item.colors.map(c =>
+        `<div class="color-swatch" style="background:${c}" data-color="${c}" data-section="${sectionId}" onclick="toggleColor(this)"></div>`
+      ).join('');
+      return `
+        <div class="field-group">
+          <label class="field-label">${item.label}</label>
+          <div class="color-row">
+            ${swatches}
+            <div class="color-custom" title="커스텀 컬러">
+              +
+              <input type="color" onchange="addCustomColor(this)" />
+            </div>
+          </div>
+        </div>`;
+
+    case 'refs':
+      let refsHtml = '';
+      if (item.samples) {
+        refsHtml = item.samples.map((s, i) => `
+          <div class="ref-card has-image" id="ref-${sectionId}-${i}">
+            <img src="${s.url}" alt="${s.label}" onerror="this.parentElement.classList.remove('has-image');this.style.display='none';" />
+            <div class="ref-label">${s.label}</div>
+          </div>
+        `).join('');
+      }
+      // Add empty slots
+      const remaining = (item.maxRefs || 4) - (item.samples ? item.samples.length : 0);
+      for (let i = 0; i < remaining; i++) {
+        refsHtml += `
+          <div class="ref-card" onclick="promptRefUrl(this)">
+            <div class="ref-add">+</div>
+            <div class="ref-label">이미지 URL 추가</div>
+          </div>`;
+      }
+      return `
+        <div class="field-group">
+          <label class="field-label">${item.label}</label>
+          ${item.hint ? `<div class="chip-hint" style="margin-bottom:8px;">${item.hint}</div>` : ''}
+          <div class="ref-grid">${refsHtml}</div>
+        </div>`;
+
+    case 'memo':
+      return `
+        <textarea class="memo-area" data-section="${sectionId}" placeholder="${item.placeholder || ''}" oninput="onFieldChange(this)"></textarea>`;
+
+    default:
+      return '';
+  }
+}
+
+// ─── Interactions ───
+function toggleSection(id) {
+  const body = document.getElementById(`body-${id}`);
+  const toggle = document.getElementById(`toggle-${id}`);
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('collapsed');
+}
+
+function onCheckChange(el) {
+  const label = el.nextElementSibling;
+  if (el.checked) label.classList.add('checked');
+  else label.classList.remove('checked');
+  saveState();
+  updateProgress(el.dataset.section);
+}
+
+function onFieldChange(el) {
+  clearTimeout(el._saveTimer);
+  el._saveTimer = setTimeout(() => saveState(), 500);
+}
+
+function toggleChip(el) {
+  el.classList.toggle('selected');
+  saveState();
+}
+
+function toggleColor(el) {
+  el.classList.toggle('selected');
+  saveState();
+}
+
+function addCustomColor(input) {
+  const color = input.value;
+  const row = input.closest('.color-row');
+  const swatch = document.createElement('div');
+  swatch.className = 'color-swatch selected';
+  swatch.style.background = color;
+  swatch.dataset.color = color;
+  swatch.onclick = function() { toggleColor(this); };
+  row.insertBefore(swatch, input.closest('.color-custom'));
+  saveState();
+}
+
+function promptRefUrl(card) {
+  const url = prompt('이미지 URL을 입력하세요:');
+  if (!url) return;
+  const label = prompt('레이블 (선택):', '') || '';
+  card.classList.add('has-image');
+  card.innerHTML = `
+    <img src="${url}" alt="${label}" onerror="alert('이미지를 불러올 수 없습니다.');this.parentElement.classList.remove('has-image');this.parentElement.innerHTML='<div class=ref-add>+</div><div class=ref-label>이미지 URL 추가</div>';" />
+    <div class="ref-label">${label}</div>
+    <button class="ref-remove" onclick="removeRef(this.parentElement, event)">✕</button>
+  `;
+  card.onclick = null;
+  saveState();
+}
+
+function removeRef(card, e) {
+  e.stopPropagation();
+  card.classList.remove('has-image');
+  card.innerHTML = '<div class="ref-add">+</div><div class="ref-label">이미지 URL 추가</div>';
+  card.onclick = function() { promptRefUrl(this); };
+  saveState();
+}
+
+// ─── Progress ───
+function updateProgress(sectionId) {
+  const section = document.getElementById(`section-${sectionId}`);
+  if (!section) return;
+  const checks = section.querySelectorAll('input[type="checkbox"]');
+  if (checks.length === 0) return;
+  const checked = Array.from(checks).filter(c => c.checked).length;
+  const el = document.getElementById(`progress-${sectionId}`);
+  if (el) el.textContent = `${checked}/${checks.length}`;
+}
+
+function updateAllProgress() {
+  document.querySelectorAll('.section').forEach(s => {
+    const id = s.id.replace('section-', '');
+    updateProgress(id);
+  });
+}
+
+// ─── Save / Restore ───
+function saveState() {
+  const state = { checkboxes: {}, fields: {}, chips: {}, colors: [], memo: {} };
+
+  document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+    state.checkboxes[el.id] = el.checked;
+  });
+
+  document.querySelectorAll('.field-input').forEach(el => {
+    const key = `${el.dataset.section}-${el.dataset.label}`;
+    state.fields[key] = el.value;
+  });
+
+  document.querySelectorAll('.chip.selected').forEach(el => {
+    const key = `${el.dataset.section}-${el.dataset.group}`;
+    if (!state.chips[key]) state.chips[key] = [];
+    state.chips[key].push(el.textContent);
+  });
+
+  document.querySelectorAll('.color-swatch.selected').forEach(el => {
+    state.colors.push(el.dataset.color);
+  });
+
+  document.querySelectorAll('.memo-area').forEach(el => {
+    state.memo[el.dataset.section] = el.value;
+  });
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function restoreState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const state = JSON.parse(raw);
+
+    if (state.checkboxes) {
+      Object.entries(state.checkboxes).forEach(([id, checked]) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.checked = checked;
+          if (checked && el.nextElementSibling) el.nextElementSibling.classList.add('checked');
+        }
+      });
+    }
+
+    if (state.fields) {
+      document.querySelectorAll('.field-input').forEach(el => {
+        const key = `${el.dataset.section}-${el.dataset.label}`;
+        if (state.fields[key]) el.value = state.fields[key];
+      });
+    }
+
+    if (state.chips) {
+      document.querySelectorAll('.chip').forEach(el => {
+        const key = `${el.dataset.section}-${el.dataset.group}`;
+        if (state.chips[key] && state.chips[key].includes(el.textContent)) {
+          el.classList.add('selected');
+        }
+      });
+    }
+
+    if (state.colors) {
+      document.querySelectorAll('.color-swatch').forEach(el => {
+        if (state.colors.includes(el.dataset.color)) el.classList.add('selected');
+      });
+    }
+
+    if (state.memo) {
+      document.querySelectorAll('.memo-area').forEach(el => {
+        if (state.memo[el.dataset.section]) el.value = state.memo[el.dataset.section];
+      });
+    }
+  } catch(e) { console.error('Restore error:', e); }
+}
+
+// ─── Generate ───
+function quickFill(text) {
+  document.getElementById('promptInput').value = text;
+  handleGenerate();
+}
+
+async function handleGenerate() {
+  const input = document.getElementById('promptInput').value.trim();
+  if (!input) return;
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.textContent = '생성 중...';
+
+  // Clear saved state for fresh canvas
+  localStorage.removeItem(STORAGE_KEY);
+
+  if (input.includes('로고') && (input.includes('디자인') || input.includes('미팅'))) {
+    renderCanvas(LOGO_TEMPLATE);
+    btn.disabled = false;
+    btn.textContent = '생성';
+    return;
+  }
+
+  // For other topics, use Gemini API
+  const apiKey = localStorage.getItem(API_KEY_STORAGE);
+  if (!apiKey) {
+    document.getElementById('apiModal').classList.add('show');
+    btn.disabled = false;
+    btn.textContent = '생성';
+    return;
+  }
+
+  try {
+    const template = await generateWithGemini(input, apiKey);
+    renderCanvas(template);
+  } catch (e) {
+    console.error('Gemini error:', e);
+    alert('캔버스 생성에 실패했습니다: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '생성';
+}
+
+async function generateWithGemini(topic, apiKey) {
+  const prompt = `You are a meeting preparation expert. Generate a comprehensive meeting canvas for the topic: "${topic}"
+
+Return a JSON object with this exact structure:
+{
+  "title": "emoji + meeting title in Korean",
+  "subtitle": "one line description in Korean",
+  "sections": [
+    {
+      "id": "unique-id",
+      "emoji": "relevant emoji",
+      "title": "section title in Korean",
+      "items": [
+        { "type": "check", "label": "checkbox item in Korean" },
+        { "type": "field", "label": "field label in Korean", "placeholder": "placeholder in Korean" },
+        { "type": "chips", "label": "selection label in Korean", "options": ["option1", "option2"] },
+        { "type": "memo", "placeholder": "memo placeholder in Korean" }
+      ]
+    }
+  ]
+}
+
+Rules:
+- All text must be in Korean
+- Include 8-12 sections covering all aspects of this meeting type
+- Each section should have 4-10 items
+- Use a mix of check, field, and chips types
+- End with a memo section
+- Make it comprehensive and practical for real-world use
+- Only return valid JSON, no markdown or explanation`;
+
+  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 8000 }
+    })
+  });
+
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+
+  const data = await resp.json();
+  let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+  // Extract JSON from possible markdown code block
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) text = jsonMatch[1];
+
+  text = text.trim();
+  return JSON.parse(text);
+}
+
+// ─── Modal ───
+function closeModal() {
+  document.getElementById('apiModal').classList.remove('show');
+}
+
+function saveApiKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  localStorage.setItem(API_KEY_STORAGE, key);
+  closeModal();
+  handleGenerate();
+}
+
+// ─── Keyboard ───
+document.getElementById('promptInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleGenerate();
+});
+</script>
+</body>
+</html>
