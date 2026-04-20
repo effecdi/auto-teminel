@@ -16,6 +16,7 @@ const { startRemoteServer, stopRemoteServer, broadcastOutput, broadcastEvent, br
 const { WebSocketServer } = require('ws');
 const { DebateEngine, MODES } = require('./debate-engine');
 const { buildProjectContext, getOperationsList } = require('./project-context');
+const { streamClaude } = require('./ai-clients');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
 const { autoUpdater } = require('electron-updater');
 
@@ -3159,6 +3160,106 @@ ipcMain.handle('ai.getModes', () => {
 
 ipcMain.handle('ai.getOperations', () => {
     return getOperationsList();
+});
+
+// ===================================================================
+//  Education Sidebar — Learn Panel IPC
+// ===================================================================
+
+const eduStreams = new Map(); // projectId → { abort() }
+
+ipcMain.handle('edu.getDiff', async (event, { projectPath }) => {
+    if (!projectPath) return { success: false, error: 'No project path' };
+    try {
+        const diff = execSync('git diff HEAD', {
+            cwd: projectPath,
+            maxBuffer: 1024 * 1024,
+            timeout: 10000,
+        }).toString();
+        // 8K 제한 (토큰 절약)
+        return { success: true, diff: diff.substring(0, 8000) };
+    } catch (err) {
+        // git repo가 아니거나 에러
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('edu.ask', async (event, { projectId, question, skillProfile, diffContext, history }) => {
+    // 이전 스트림이 있으면 중단
+    const prev = eduStreams.get(projectId);
+    if (prev) {
+        try { prev.abort(); } catch (_) {}
+        eduStreams.delete(projectId);
+    }
+
+    // 교육 전용 시스템 프롬프트
+    const eduSystemPrompt = `당신은 시니어 코드 교육자(Tutor)입니다. 학생이 AI로 코딩(바이브코딩)한 코드를 이해하도록 도와줍니다.
+
+[학생 스킬 프로필]
+${skillProfile || '프로필 미설정 — 기초 수준으로 설명해주세요'}
+
+${diffContext ? `[최근 변경된 코드 (git diff)]\n\`\`\`diff\n${diffContext}\n\`\`\`\n` : '[변경된 코드 없음 — 일반 질문으로 답변]'}
+
+교육 원칙:
+1. 학생의 스킬 레벨에 맞춰 설명 (모르는 기술은 기초부터, 아는 기술은 심화)
+2. 코드를 섹션별로 나눠 분석: 🏷️이름, 📖설명, 🎯핵심개념, ⚠️주의점
+3. 전문 용어는 반드시 쉬운 비유와 함께 설명
+4. 실생활 예시를 적극 활용
+5. 한국어로 답변
+6. 퀴즈 요청 시 아래 형식 사용:
+
+---QUIZ_START---
+Q: 질문 내용
+TYPE: multiple_choice
+OPTIONS: A) 선택1 | B) 선택2 | C) 선택3 | D) 선택4
+ANSWER: B
+EXPLANATION: 정답 설명
+CONCEPT: 관련 개념명
+DIFFICULTY: beginner|intermediate|advanced
+---QUIZ_END---`;
+
+    const messages = [...(history || []), { role: 'user', content: question }];
+
+    // 프로젝트 경로 조회
+    let projectPath = null;
+    const projects = store.get('projects', []);
+    const proj = projects.find(p => p.id === projectId);
+    if (proj && proj.path) projectPath = proj.path;
+
+    const stream = streamClaude(messages, {
+        onToken: (token) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('edu.token', { projectId, token });
+            }
+        },
+        onComplete: (text) => {
+            eduStreams.delete(projectId);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('edu.complete', { projectId, content: text });
+            }
+        },
+        onError: (err) => {
+            eduStreams.delete(projectId);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('edu.error', { projectId, message: err.message });
+            }
+        },
+    }, {
+        systemPromptSuffix: eduSystemPrompt,
+        projectPath: projectPath,
+    });
+
+    eduStreams.set(projectId, stream);
+    return { success: true };
+});
+
+ipcMain.handle('edu.stop', async (event, { projectId }) => {
+    const stream = eduStreams.get(projectId);
+    if (stream) {
+        try { stream.abort(); } catch (_) {}
+        eduStreams.delete(projectId);
+    }
+    return { success: true };
 });
 
 ipcMain.handle('ai.getSettings', () => {

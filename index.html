@@ -1573,6 +1573,208 @@
             margin-left: 8px;
         }
         .sp-edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* ===================== Education Sidebar (Learn Tab) ===================== */
+        .info-panel.edu-expanded {
+            width: 400px;
+            transition: width 0.25s ease;
+        }
+        #tab-learn {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+        #tab-learn.active {
+            display: flex;
+        }
+        /* Diff Section */
+        .edu-diff-section {
+            border-bottom: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+        .edu-diff-toggle {
+            width: 100%;
+            padding: 8px 12px;
+            background: rgba(88,166,255,0.06);
+            border: none;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s;
+        }
+        .edu-diff-toggle:hover { background: rgba(88,166,255,0.12); }
+        #eduDiffArrow {
+            margin-left: auto;
+            font-size: 9px;
+            transition: transform 0.2s;
+        }
+        .edu-diff-section.expanded #eduDiffArrow { transform: rotate(90deg); }
+        .edu-diff-preview {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 8px;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .edu-diff-preview .diff-add { color: #3fb950; }
+        .edu-diff-preview .diff-del { color: #f85149; }
+        .edu-diff-preview .diff-hunk { color: #58a6ff; font-weight: 600; }
+        /* Messages Area */
+        .edu-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .edu-welcome {
+            text-align: center;
+            padding: 40px 16px;
+            color: var(--text-muted);
+        }
+        .edu-welcome-icon { font-size: 36px; margin-bottom: 8px; }
+        .edu-welcome-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+        .edu-welcome-desc { font-size: 12px; line-height: 1.6; }
+        .edu-msg {
+            padding: 10px 12px;
+            border-radius: 12px;
+            font-size: 12.5px;
+            line-height: 1.65;
+            max-width: 100%;
+            word-wrap: break-word;
+        }
+        .edu-msg.user {
+            background: rgba(88,166,255,0.12);
+            color: var(--text-primary);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .edu-msg.ai {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-primary);
+            color: var(--text-primary);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .edu-msg.ai code {
+            background: rgba(255,255,255,0.06);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 11.5px;
+        }
+        .edu-msg.ai pre {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: 10px;
+            overflow-x: auto;
+            margin: 8px 0;
+            font-size: 11px;
+        }
+        .edu-msg.ai pre code {
+            background: none;
+            padding: 0;
+        }
+        .edu-msg.error {
+            background: rgba(248,81,73,0.1);
+            border: 1px solid rgba(248,81,73,0.3);
+            color: #f85149;
+            font-size: 11px;
+        }
+        .edu-msg .edu-typing-dots {
+            display: inline-block;
+            color: var(--text-muted);
+        }
+        .edu-msg .edu-typing-dots::after {
+            content: '...';
+            animation: eduDots 1.2s steps(4, end) infinite;
+        }
+        @keyframes eduDots {
+            0% { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+        }
+        /* Quick Actions */
+        .edu-quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            padding: 6px 10px;
+            border-top: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+        .edu-quick-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border-primary);
+            border-radius: 14px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .edu-quick-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(88,166,255,0.08);
+        }
+        /* Input Area */
+        .edu-input-area {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            padding: 8px 10px;
+            border-top: 1px solid var(--border-primary);
+            background: var(--bg-secondary);
+            flex-shrink: 0;
+        }
+        #eduInput {
+            flex: 1;
+            resize: none;
+            border: 1px solid var(--border-primary);
+            border-radius: 10px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            font-size: 12px;
+            font-family: inherit;
+            line-height: 1.4;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        #eduInput:focus { border-color: var(--accent); outline: none; }
+        #eduInput::placeholder { color: var(--text-muted); }
+        .edu-send-btn {
+            width: 34px;
+            height: 34px;
+            border: none;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: opacity 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .edu-send-btn:hover { opacity: 0.85; }
+        .edu-send-btn:disabled { opacity: 0.4; cursor: default; }
     </style>
 </head>
 <body>
@@ -2143,6 +2345,7 @@
                     <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
                     <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
                     <button class="auto-tab" data-tab="mcp" onclick="switchAutoTab('mcp'); renderMcpPanel()">MCP</button>
+                    <button class="auto-tab" data-tab="learn" onclick="switchAutoTab('learn')">📚 Learn</button>
                 </div>
                 <button class="auto-tabs-arrow" id="autoTabsRight" onclick="scrollAutoTabs(80)">&#8594;</button>
             </div>
@@ -2212,6 +2415,33 @@
                 <div class="hc-section-header">Results</div>
                 <div class="tab-scroll" id="healthCheckResultsList">
                     <div class="history-empty">No health check results yet. Click "Run Now" to start.</div>
+                </div>
+            </div>
+
+            <!-- Tab: Learn (Education Sidebar) -->
+            <div class="auto-tab-content" id="tab-learn">
+                <div class="edu-diff-section" id="eduDiffSection">
+                    <button class="edu-diff-toggle" onclick="toggleEduDiff()">
+                        📝 최근 변경 코드 <span id="eduDiffCount"></span> <span id="eduDiffArrow">▶</span>
+                    </button>
+                    <div class="edu-diff-preview" id="eduDiffPreview" style="display:none;"></div>
+                </div>
+                <div class="edu-messages" id="eduMessages">
+                    <div class="edu-welcome">
+                        <div class="edu-welcome-icon">📚</div>
+                        <div class="edu-welcome-title">코드 학습 패널</div>
+                        <div class="edu-welcome-desc">바이브코딩으로 작성된 코드가 궁금하면<br>아래에서 질문해보세요!</div>
+                    </div>
+                </div>
+                <div class="edu-quick-actions" id="eduQuickActions">
+                    <button class="edu-quick-btn" onclick="eduQuickAsk('방금 작성된 코드 분석해줘')">🔍 코드 분석</button>
+                    <button class="edu-quick-btn" onclick="eduQuickAsk('이 코드의 핵심 개념은?')">💡 핵심 개념</button>
+                    <button class="edu-quick-btn" onclick="eduQuickAsk('보안 괜찮아?')">🔒 보안 체크</button>
+                    <button class="edu-quick-btn" onclick="eduQuickAsk('퀴즈 내줘')">📝 퀴즈</button>
+                </div>
+                <div class="edu-input-area">
+                    <textarea id="eduInput" placeholder="코드에 대해 질문..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();eduSendMessage();}"></textarea>
+                    <button class="edu-send-btn" id="eduSendBtn" onclick="eduSendMessage()">▶</button>
                 </div>
             </div>
         </div>

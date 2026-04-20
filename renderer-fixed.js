@@ -135,6 +135,12 @@ const MASTERY_LEVELS = {
     5: { name: '마스터', color: '#b392f0', icon: '🟪' },
 };
 
+// Education Sidebar state
+const eduMessages = new Map();       // projectId → [{role, content, timestamp}]
+let eduStreaming = null;             // { role, div, projectId, fullText }
+let eduDiffCache = null;             // cached git diff text
+let eduCurrentTab = false;           // true when Learn tab is active
+
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
 
@@ -1551,12 +1557,249 @@ function switchAutoTab(tabName) {
         tab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
     if (content) content.classList.add('active');
+
+    // Learn tab — expand/collapse info-panel
+    const infoPanel = document.querySelector('.info-panel');
+    if (tabName === 'learn') {
+        eduCurrentTab = true;
+        if (infoPanel) infoPanel.classList.add('edu-expanded');
+        eduFetchDiff();
+    } else {
+        eduCurrentTab = false;
+        if (infoPanel) infoPanel.classList.remove('edu-expanded');
+    }
 }
 
 function scrollAutoTabs(delta) {
     const el = document.getElementById('autoTabsScroll');
     if (el) el.scrollLeft += delta;
 }
+
+// ===================================================================
+//  Education Sidebar (Learn Panel)
+// ===================================================================
+
+async function eduFetchDiff() {
+    if (!currentProject || !currentProject.path) {
+        eduDiffCache = null;
+        eduRenderDiffPreview('프로젝트 경로 없음');
+        return;
+    }
+    try {
+        const result = await ipcRenderer.invoke('edu.getDiff', { projectPath: currentProject.path });
+        if (result.success && result.diff) {
+            eduDiffCache = result.diff;
+            const lineCount = result.diff.split('\n').length;
+            const countEl = document.getElementById('eduDiffCount');
+            if (countEl) countEl.textContent = `(${lineCount}줄)`;
+            eduRenderDiffPreview(result.diff);
+        } else {
+            eduDiffCache = null;
+            const countEl = document.getElementById('eduDiffCount');
+            if (countEl) countEl.textContent = '(없음)';
+            eduRenderDiffPreview(result.error || '변경사항 없음');
+        }
+    } catch (err) {
+        eduDiffCache = null;
+        eduRenderDiffPreview('diff 조회 실패: ' + err.message);
+    }
+}
+
+function eduRenderDiffPreview(text) {
+    const preview = document.getElementById('eduDiffPreview');
+    if (!preview) return;
+    if (!text || text === '변경사항 없음' || text.startsWith('diff 조회 실패') || text === '프로젝트 경로 없음') {
+        preview.innerHTML = `<span style="color:var(--text-muted);font-style:italic;">${text}</span>`;
+        return;
+    }
+    // Syntax highlight diff
+    const lines = text.split('\n').map(line => {
+        const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        if (line.startsWith('+') && !line.startsWith('+++')) return `<span class="diff-add">${escaped}</span>`;
+        if (line.startsWith('-') && !line.startsWith('---')) return `<span class="diff-del">${escaped}</span>`;
+        if (line.startsWith('@@')) return `<span class="diff-hunk">${escaped}</span>`;
+        return escaped;
+    });
+    preview.innerHTML = lines.join('\n');
+}
+
+function toggleEduDiff() {
+    const section = document.getElementById('eduDiffSection');
+    const preview = document.getElementById('eduDiffPreview');
+    if (!section || !preview) return;
+    const isExpanded = section.classList.contains('expanded');
+    if (isExpanded) {
+        section.classList.remove('expanded');
+        preview.style.display = 'none';
+    } else {
+        section.classList.add('expanded');
+        preview.style.display = 'block';
+        eduFetchDiff(); // refresh diff
+    }
+}
+
+function eduQuickAsk(text) {
+    const input = document.getElementById('eduInput');
+    if (input) input.value = text;
+    eduSendMessage();
+}
+
+async function eduSendMessage() {
+    const input = document.getElementById('eduInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    if (!currentProject) return;
+
+    const projectId = currentProject.id;
+
+    // 스킬 프로필 확인 — 없으면 모달 표시
+    const profile = getSkillProfile();
+    if (!profile) {
+        showSkillProfileModal();
+        return;
+    }
+
+    // 메시지 추가 (user)
+    if (!eduMessages.has(projectId)) eduMessages.set(projectId, []);
+    const msgs = eduMessages.get(projectId);
+    msgs.push({ role: 'user', content: text, timestamp: Date.now() });
+
+    input.value = '';
+    input.style.height = 'auto';
+
+    eduRenderMessages();
+
+    // 히스토리 준비 (최근 4쌍)
+    const historyForApi = [];
+    const allMsgs = msgs.filter(m => m.role === 'user' || m.role === 'ai');
+    const recent = allMsgs.length > 8 ? allMsgs.slice(-8) : allMsgs;
+    for (const m of recent.slice(0, -1)) {
+        historyForApi.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content });
+    }
+
+    const skillProfileText = buildSkillProfileText();
+
+    try {
+        await ipcRenderer.invoke('edu.ask', {
+            projectId,
+            question: text,
+            skillProfile: skillProfileText,
+            diffContext: eduDiffCache || '',
+            history: historyForApi,
+        });
+    } catch (err) {
+        msgs.push({ role: 'error', content: err.message, timestamp: Date.now() });
+        eduRenderMessages();
+    }
+}
+
+function eduRenderMessages() {
+    const container = document.getElementById('eduMessages');
+    if (!container || !currentProject) return;
+
+    const msgs = eduMessages.get(currentProject.id) || [];
+    if (msgs.length === 0) {
+        container.innerHTML = `
+            <div class="edu-welcome">
+                <div class="edu-welcome-icon">📚</div>
+                <div class="edu-welcome-title">코드 학습 패널</div>
+                <div class="edu-welcome-desc">바이브코딩으로 작성된 코드가 궁금하면<br>아래에서 질문해보세요!</div>
+            </div>`;
+        return;
+    }
+
+    let html = '';
+    for (const msg of msgs) {
+        if (msg.role === 'user') {
+            const escaped = msg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            html += `<div class="edu-msg user">${escaped}</div>`;
+        } else if (msg.role === 'ai') {
+            let rendered = eduFormatMarkdown(msg.content);
+            rendered = parseQuizBlocks(rendered);
+            html += `<div class="edu-msg ai">${rendered}</div>`;
+        } else if (msg.role === 'error') {
+            html += `<div class="edu-msg error">⚠ ${msg.content}</div>`;
+        }
+    }
+
+    // 스트리밍 중이면 추가
+    if (eduStreaming && eduStreaming.projectId === currentProject.id) {
+        let streamContent = eduStreaming.fullText || '';
+        if (streamContent) {
+            let rendered = eduFormatMarkdown(streamContent);
+            html += `<div class="edu-msg ai">${rendered}<span class="edu-typing-dots"></span></div>`;
+        } else {
+            html += `<div class="edu-msg ai"><span class="edu-typing-dots"></span></div>`;
+        }
+    }
+
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+}
+
+function eduFormatMarkdown(text) {
+    // 간단한 마크다운 변환
+    let html = text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Code blocks (```...```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        return `<pre><code>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<strong style="font-size:13px;display:block;margin:8px 0 4px;">$1</strong>');
+    html = html.replace(/^## (.+)$/gm, '<strong style="font-size:14px;display:block;margin:10px 0 4px;">$1</strong>');
+
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
+}
+
+// IPC listeners for education streaming
+ipcRenderer.on('edu.token', (event, { projectId, token }) => {
+    if (!eduStreaming || eduStreaming.projectId !== projectId) {
+        eduStreaming = { projectId, fullText: '', role: 'ai' };
+    }
+    eduStreaming.fullText += token;
+
+    if (eduCurrentTab && currentProject && currentProject.id === projectId) {
+        eduRenderMessages();
+    }
+});
+
+ipcRenderer.on('edu.complete', (event, { projectId, content }) => {
+    if (!eduMessages.has(projectId)) eduMessages.set(projectId, []);
+    const msgs = eduMessages.get(projectId);
+    msgs.push({ role: 'ai', content: content, timestamp: Date.now() });
+    eduStreaming = null;
+
+    if (eduCurrentTab && currentProject && currentProject.id === projectId) {
+        eduRenderMessages();
+    }
+});
+
+ipcRenderer.on('edu.error', (event, { projectId, message }) => {
+    if (!eduMessages.has(projectId)) eduMessages.set(projectId, []);
+    const msgs = eduMessages.get(projectId);
+    msgs.push({ role: 'error', content: message, timestamp: Date.now() });
+    eduStreaming = null;
+
+    if (eduCurrentTab && currentProject && currentProject.id === projectId) {
+        eduRenderMessages();
+    }
+});
 
 // ===================================================================
 //  MCP Manager
