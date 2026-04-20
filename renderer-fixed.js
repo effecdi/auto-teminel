@@ -96,6 +96,26 @@ const AI_RECOMMENDATION_BUTTONS = [
     '테스트 코드 작성해줘',
 ];
 
+const LEARN_RECOMMENDATION_BUTTONS = [
+    '이 코드의 디자인 패턴을 분석해줘',
+    '보안 취약점을 찾아줘',
+    '이 컴포넌트의 동작 원리를 설명해줘',
+    '더 어려운 퀴즈를 내줘',
+    'TypeScript로 리팩토링하면 어떻게 되는지 보여줘',
+    '이 코드의 성능 개선 포인트를 알려줘',
+];
+
+// Learn Mode — Quiz state
+const _parsedQuizzes = new Map(); // quizId → quiz data
+const MASTERY_LEVELS = {
+    0: { name: '미학습', color: '#555', icon: '⬜' },
+    1: { name: '입문', color: '#f85149', icon: '🟥' },
+    2: { name: '기초', color: '#d29922', icon: '🟧' },
+    3: { name: '이해', color: '#58a6ff', icon: '🟦' },
+    4: { name: '숙련', color: '#3fb950', icon: '🟩' },
+    5: { name: '마스터', color: '#b392f0', icon: '🟪' },
+};
+
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
 
@@ -242,6 +262,11 @@ async function init() {
                 const aiModeEl = document.getElementById('aiAiMode');
                 if (debateModeEl && aiSettings.aiDefaultMode) debateModeEl.value = aiSettings.aiDefaultMode;
                 if (aiModeEl && aiSettings.aiDefaultAiMode) aiModeEl.value = aiSettings.aiDefaultAiMode;
+                // Learn mode progress panel visibility
+                if (debateModeEl) {
+                    debateModeEl.addEventListener('change', () => renderLearnProgressPanel());
+                    renderLearnProgressPanel();
+                }
             }
         } catch (_) {}
 
@@ -3413,7 +3438,11 @@ function createRecommendationButtons() {
     const wrapper = document.createElement('div');
     wrapper.className = 'ai-recommendations';
 
-    for (const label of AI_RECOMMENDATION_BUTTONS) {
+    const debateMode = document.getElementById('aiDebateMode');
+    const isLearn = debateMode && debateMode.value === 'learn';
+    const buttons = isLearn ? LEARN_RECOMMENDATION_BUTTONS : AI_RECOMMENDATION_BUTTONS;
+
+    for (const label of buttons) {
         const btn = document.createElement('button');
         btn.className = 'ai-rec-btn';
         btn.textContent = label;
@@ -3563,7 +3592,211 @@ function renderAiMarkdown(text) {
     html = html.replace(/<p>(<(?:h[1234]|pre|ul|ol|blockquote|table|div|hr)[\s>])/g, '$1');
     html = html.replace(/(<\/(?:h[1234]|pre|ul|ol|blockquote|table|div|hr)>)<\/p>/g, '$1');
 
+    // Learn Mode — Parse quiz blocks
+    html = parseQuizBlocks(html);
+
     return html;
+}
+
+/** Parse ---QUIZ_START--- / ---QUIZ_END--- blocks into interactive quiz cards */
+function parseQuizBlocks(html) {
+    const quizRegex = /---QUIZ_START---([\s\S]*?)---QUIZ_END---/g;
+    let match;
+    let result = html;
+
+    while ((match = quizRegex.exec(html)) !== null) {
+        const block = match[1].trim();
+        const quiz = parseQuizData(block);
+        if (!quiz) continue;
+
+        const quizId = `quiz_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+        quiz.id = quizId;
+        _parsedQuizzes.set(quizId, quiz);
+
+        const diffClass = quiz.difficulty || 'beginner';
+        const diffLabel = { beginner: '초급', intermediate: '중급', advanced: '고급' }[diffClass] || diffClass;
+
+        let optionsHtml = '';
+        if (quiz.options && quiz.options.length > 0) {
+            optionsHtml = quiz.options.map(opt => {
+                const optLetter = opt.charAt(0);
+                return `<button class="quiz-option" data-option="${optLetter}" onclick="handleQuizAnswer('${quizId}','${optLetter}')">${opt}</button>`;
+            }).join('');
+        }
+
+        const cardHtml = `<div class="learn-quiz-card" data-quiz-id="${quizId}" data-concept="${quiz.concept || ''}">
+            <div class="quiz-header">
+                <span class="quiz-badge">🧠 Quiz</span>
+                <span class="quiz-difficulty ${diffClass}">${diffLabel}</span>
+                <span class="quiz-concept">${quiz.concept || ''}</span>
+            </div>
+            <div class="quiz-question">${quiz.question || ''}</div>
+            <div class="quiz-options">${optionsHtml}</div>
+            <div class="quiz-result">
+                <div class="quiz-result-icon"></div>
+                <div class="quiz-explanation">${quiz.explanation || ''}</div>
+            </div>
+        </div>`;
+
+        result = result.replace(match[0], cardHtml);
+    }
+
+    return result;
+}
+
+/** Parse individual quiz data from text block */
+function parseQuizData(block) {
+    try {
+        const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+        const data = {};
+        for (const line of lines) {
+            if (line.startsWith('Q:')) data.question = line.slice(2).trim();
+            else if (line.startsWith('TYPE:')) data.type = line.slice(5).trim();
+            else if (line.startsWith('OPTIONS:')) {
+                data.options = line.slice(8).trim().split('|').map(o => o.trim());
+            }
+            else if (line.startsWith('ANSWER:')) data.answer = line.slice(7).trim().charAt(0);
+            else if (line.startsWith('EXPLANATION:')) data.explanation = line.slice(12).trim();
+            else if (line.startsWith('CONCEPT:')) data.concept = line.slice(8).trim();
+            else if (line.startsWith('DIFFICULTY:')) data.difficulty = line.slice(11).trim().toLowerCase();
+        }
+        if (!data.question) return null;
+        return data;
+    } catch (e) {
+        console.warn('[Learn] Failed to parse quiz block:', e);
+        return null;
+    }
+}
+
+/** Handle quiz answer click */
+function handleQuizAnswer(quizId, selectedOption) {
+    const quiz = _parsedQuizzes.get(quizId);
+    if (!quiz || quiz.userAnswer) return; // already answered
+
+    quiz.userAnswer = selectedOption;
+    const isCorrect = selectedOption === quiz.answer;
+    quiz.isCorrect = isCorrect;
+
+    const card = document.querySelector(`[data-quiz-id="${quizId}"]`);
+    if (!card) return;
+
+    // Disable all options and mark correct/incorrect
+    card.querySelectorAll('.quiz-option').forEach(btn => {
+        btn.classList.add('disabled');
+        if (btn.dataset.option === quiz.answer) btn.classList.add('correct');
+        if (btn.dataset.option === selectedOption && !isCorrect) btn.classList.add('incorrect');
+    });
+
+    // Show result
+    const resultDiv = card.querySelector('.quiz-result');
+    resultDiv.classList.add('show');
+    const iconDiv = resultDiv.querySelector('.quiz-result-icon');
+    iconDiv.textContent = isCorrect ? '✅ 정답!' : `❌ 오답 — 정답: ${quiz.answer}`;
+    iconDiv.className = `quiz-result-icon ${isCorrect ? 'correct' : 'incorrect'}`;
+
+    // Update progress
+    updateLearnProgress(quiz.concept, isCorrect, quiz.difficulty);
+    renderLearnProgressPanel();
+}
+
+/** Get learning progress from localStorage */
+function getLearnProgress() {
+    try {
+        const raw = localStorage.getItem('learnProgress');
+        return raw ? JSON.parse(raw) : { concepts: {}, stats: { totalQuizzes: 0, correctAnswers: 0, streak: 0 } };
+    } catch { return { concepts: {}, stats: { totalQuizzes: 0, correctAnswers: 0, streak: 0 } }; }
+}
+
+/** Update learning progress */
+function updateLearnProgress(concept, isCorrect, difficulty) {
+    if (!concept) return;
+    const progress = getLearnProgress();
+
+    if (!progress.concepts[concept]) {
+        progress.concepts[concept] = { level: 0, correct: 0, total: 0, consecutive: 0, lastSeen: Date.now() };
+    }
+
+    const c = progress.concepts[concept];
+    c.total++;
+    c.lastSeen = Date.now();
+
+    if (isCorrect) {
+        c.correct++;
+        c.consecutive++;
+        // Level up: 3 consecutive correct at current level or above
+        if (c.consecutive >= 3 && c.level < 5) {
+            c.level++;
+            c.consecutive = 0;
+        }
+    } else {
+        c.consecutive = 0;
+        // No level down — just reset consecutive
+    }
+
+    progress.stats.totalQuizzes++;
+    if (isCorrect) {
+        progress.stats.correctAnswers++;
+        progress.stats.streak++;
+    } else {
+        progress.stats.streak = 0;
+    }
+
+    localStorage.setItem('learnProgress', JSON.stringify(progress));
+}
+
+/** Render learn progress panel */
+function renderLearnProgressPanel() {
+    const panel = document.getElementById('learnProgressPanel');
+    if (!panel) return;
+
+    const debateMode = document.getElementById('aiDebateMode');
+    const isLearnMode = debateMode && debateMode.value === 'learn';
+
+    if (!isLearnMode) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const progress = getLearnProgress();
+    const conceptKeys = Object.keys(progress.concepts);
+
+    if (conceptKeys.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = '';
+
+    // Summary
+    const s = progress.stats;
+    const pct = s.totalQuizzes > 0 ? Math.round(s.correctAnswers / s.totalQuizzes * 100) : 0;
+    const summary = document.getElementById('learnStatsSummary');
+    if (summary) {
+        summary.textContent = `정답률 ${pct}% | ${s.totalQuizzes}문제 | 🔥 ${s.streak}연속`;
+    }
+
+    // Concept grid
+    const grid = document.getElementById('learnConceptsGrid');
+    if (grid) {
+        grid.innerHTML = conceptKeys.map(key => {
+            const c = progress.concepts[key];
+            const ml = MASTERY_LEVELS[c.level] || MASTERY_LEVELS[0];
+            const pctBar = Math.min(100, (c.level / 5) * 100);
+            return `<div class="learn-concept-card">
+                <div class="concept-level-bar" style="--level-pct:${pctBar}%;--level-color:${ml.color}">
+                    <div class="concept-level-fill"></div>
+                </div>
+                <div class="concept-name">${key}</div>
+                <div class="concept-stats">${ml.icon} ${ml.name} | ${c.correct}/${c.total}</div>
+            </div>`;
+        }).join('');
+    }
+}
+
+/** Toggle learn progress panel expand/collapse */
+function toggleLearnProgress() {
+    const panel = document.getElementById('learnProgressPanel');
+    if (panel) panel.classList.toggle('expanded');
 }
 
 /** Copy code block content to clipboard */

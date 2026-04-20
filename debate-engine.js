@@ -93,9 +93,66 @@ const MODES = {
 코드를 쓰지 마세요. 모든 값을 구체적인 수치와 hex 코드로 명세하세요. Claude가 이 스펙을 터미널에서 직접 파일에 구현합니다.`,
         claudeSuffix: '',
     },
+    learn: {
+        name: 'Learn (학습)',
+        description: 'Gemini가 코드 분석/교육 → Claude가 퀴즈/심화 학습',
+        geminiSuffix: `당신은 시니어 코드 교육자(Tutor)입니다. 학생은 HTML/CSS 전문 웹 퍼블리셔이며 풀스택 개발자를 목표로 합니다.
+당신의 역할:
+1. 프로젝트 코드를 분석하고 **교육적 관점**에서 설명하세요.
+2. 사용된 **디자인 패턴**, **아키텍처 패턴**을 식별하고 왜 그 패턴이 사용되었는지 설명하세요.
+3. **보안 이슈**가 있으면 OWASP 기준으로 식별하고 안전한 코드와 비교하여 보여주세요.
+4. **프레임워크/라이브러리 개념**을 초보자가 이해할 수 있게 설명하세요.
+5. 코드를 섹션별로 나눠 분석하세요. 각 섹션마다:
+   - 🏷️ **이름**: 이 코드 블록이 하는 일 (한 줄)
+   - 📖 **설명**: 어떻게 동작하는지 (초보자 수준)
+   - 🎯 **핵심 개념**: 여기서 배울 수 있는 프로그래밍 개념
+   - ⚠️ **주의점**: 흔한 실수나 보안 이슈
+   - 💡 **개선 제안**: 더 나은 방법이 있다면
+
+마크다운 포맷을 적극 활용하세요. 코드 블록에는 반드시 언어를 명시하세요.
+파일을 읽어서 분석하세요. readFile 도구를 활용하세요.`,
+        claudeSuffix: `Gemini의 코드 분석 결과가 위에 있습니다. 당신은 퀴즈 마스터이자 심화 학습 가이드입니다.
+당신의 역할:
+1. Gemini의 분석에서 핵심 개념을 추출하여 **이해도 확인 퀴즈 3-5개**를 출제하세요.
+2. 각 퀴즈는 아래 형식을 **정확히** 따르세요:
+---QUIZ_START---
+Q: [질문 텍스트]
+TYPE: multiple_choice
+OPTIONS: A) ... | B) ... | C) ... | D) ...
+ANSWER: [A/B/C/D 중 하나]
+EXPLANATION: [왜 이것이 정답인지 설명]
+CONCEPT: [이 퀴즈가 테스트하는 개념 이름]
+DIFFICULTY: [beginner/intermediate/advanced]
+---QUIZ_END---
+3. 퀴즈 후 **심화 학습 가이드**를 제공하세요:
+   - 이 코드에서 더 배울 수 있는 주제 3가지
+   - 각 주제별 추천 학습 키워드
+   - 직접 실습해볼 수 있는 미니 과제 1개`,
+    },
 };
 
 const SOLO_SUFFIX = '당신은 단독으로 응답합니다. 디자인과 개발 모든 측면을 종합적으로 다뤄주세요.';
+
+const LEARN_SOLO_SUFFIX = `당신은 코드 교육자(Tutor)이자 퀴즈 마스터입니다. 학생은 HTML/CSS 전문 웹 퍼블리셔이며 풀스택 개발자를 목표로 합니다.
+
+역할 1 — 코드 분석 (교육적):
+- 코드를 섹션별로 분석: 🏷️이름, 📖설명, 🎯핵심개념, ⚠️주의점, 💡개선제안
+- 디자인 패턴, 아키텍처 패턴 식별
+- 보안 이슈 OWASP 기준 식별
+
+역할 2 — 퀴즈 (분석 후 반드시 출제):
+---QUIZ_START---
+Q: [질문]
+TYPE: multiple_choice
+OPTIONS: A) ... | B) ... | C) ... | D) ...
+ANSWER: [정답]
+EXPLANATION: [설명]
+CONCEPT: [개념명]
+DIFFICULTY: [beginner/intermediate/advanced]
+---QUIZ_END---
+
+역할 3 — 심화 학습:
+- 더 배울 주제 3가지 + 추천 키워드 + 미니 과제 1개`;
 
 // ===================================================================
 //  Conversation History
@@ -484,7 +541,7 @@ class DebateEngine {
                     console.log(`[DebateEngine] Gemini-Solo Step 2/3: Gemini 메인 응답`);
                     callbacks.onStatusChange(`💬 Gemini 응답중... | Gemini Solo`);
                     await this._runGemini(callbacks, {
-                        suffix: SOLO_SUFFIX + MEDIA_GEMINI_SUFFIX,
+                        suffix: (this.mode === 'learn' ? LEARN_SOLO_SUFFIX : SOLO_SUFFIX) + MEDIA_GEMINI_SUFFIX,
                         projectContext, projectPath: this.projectPath,
                         attachedMediaFiles: consumeMedia(),
                     });
@@ -504,7 +561,7 @@ class DebateEngine {
 
                     callbacks.onStatusChange(`💬 Claude 응답중... | Round ${round}/${maxRounds}`);
                     await this._runClaude(callbacks, {
-                        suffix: SOLO_SUFFIX,
+                        suffix: this.mode === 'learn' ? LEARN_SOLO_SUFFIX : SOLO_SUFFIX,
                         projectContext, projectPath: this.projectPath,
                     });
                     if (!this.running) break;
@@ -521,5 +578,6 @@ class DebateEngine {
 module.exports = {
     DebateEngine,
     MODES,
-    SOLO_SUFFIX
+    SOLO_SUFFIX,
+    LEARN_SOLO_SUFFIX
 };

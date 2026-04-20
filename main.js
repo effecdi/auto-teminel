@@ -3043,7 +3043,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
 
     const effectiveMode = mode || 'collab';
     const callbacks = makeDebateCallbacks(projectId, {
-        autoExecute: true,
+        autoExecute: effectiveMode !== 'learn',
         mode: effectiveMode,
     });
     engine.start(task, callbacks, {
@@ -3102,7 +3102,7 @@ ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, 
 
     const effectiveMode = mode || engine.mode;
     const callbacks = makeDebateCallbacks(projectId, {
-        autoExecute: true,
+        autoExecute: effectiveMode !== 'learn',
         mode: effectiveMode,
     });
     // Do not await — let it run in background, IPC events will stream results

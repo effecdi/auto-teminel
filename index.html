@@ -1323,6 +1323,155 @@
 
         /* ===== Timeline Panel (hidden) ===== */
         .timeline-panel { display: none; }
+
+        /* ===== Learn Mode — Quiz Cards ===== */
+        .learn-quiz-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-left: 4px solid var(--accent);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+        }
+        .quiz-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .quiz-badge {
+            background: rgba(88,166,255,0.15);
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .quiz-difficulty {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        .quiz-difficulty.beginner { background: rgba(63,185,80,0.15); color: #3fb950; }
+        .quiz-difficulty.intermediate { background: rgba(210,153,34,0.15); color: #d29922; }
+        .quiz-difficulty.advanced { background: rgba(248,81,73,0.15); color: #f85149; }
+        .quiz-concept {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+        .quiz-question {
+            font-size: 15px;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .quiz-option {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            color: var(--text-secondary);
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s ease;
+        }
+        .quiz-option:hover:not(.disabled) {
+            border-color: var(--accent);
+            background: rgba(88,166,255,0.08);
+            color: var(--text-primary);
+        }
+        .quiz-option.correct {
+            border-color: #3fb950;
+            background: rgba(63,185,80,0.15);
+            color: #3fb950;
+            pointer-events: none;
+        }
+        .quiz-option.incorrect {
+            border-color: #f85149;
+            background: rgba(248,81,73,0.1);
+            color: #f85149;
+            pointer-events: none;
+        }
+        .quiz-option.disabled { pointer-events: none; opacity: 0.6; }
+        .quiz-result {
+            margin-top: 14px;
+            padding: 14px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            display: none;
+        }
+        .quiz-result.show { display: block; }
+        .quiz-result-icon { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+        .quiz-result-icon.correct { color: #3fb950; }
+        .quiz-result-icon.incorrect { color: #f85149; }
+        .quiz-explanation { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+
+        /* ===== Learn Mode — Progress Panel ===== */
+        .learn-progress-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            margin: 12px 16px;
+            overflow: hidden;
+        }
+        .learn-progress-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .learn-progress-header:hover { background: rgba(255,255,255,0.03); }
+        .learn-stats-summary { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+        .learn-toggle-icon { font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
+        .learn-progress-panel.expanded .learn-toggle-icon { transform: rotate(180deg); }
+        .learn-progress-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        .learn-progress-panel.expanded .learn-progress-body { max-height: 400px; overflow-y: auto; }
+        .learn-concepts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+            padding: 0 16px 16px;
+        }
+        .learn-concept-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .concept-level-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+        .concept-level-fill {
+            height: 100%;
+            width: var(--level-pct, 0%);
+            background: var(--level-color, var(--accent));
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .concept-name { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .concept-stats { font-size: 11px; color: var(--text-muted); }
     </style>
 </head>
 <body>
@@ -1455,10 +1604,23 @@
                             <option value="collab">Collab</option>
                             <option value="debate">Debate</option>
                             <option value="review">Review</option>
+                            <option value="learn">📚 Learn</option>
                         </select>
                     </div>
                     <div class="ai-chat-header-right">
                         <button class="ai-chat-newchat-btn" onclick="resetAiChat()" title="새 대화 시작">+ New</button>
+                    </div>
+                </div>
+
+                <!-- Learn Mode Progress Panel -->
+                <div class="learn-progress-panel" id="learnProgressPanel" style="display:none;">
+                    <div class="learn-progress-header" onclick="toggleLearnProgress()">
+                        <span>📊 학습 진도</span>
+                        <span class="learn-stats-summary" id="learnStatsSummary"></span>
+                        <span class="learn-toggle-icon">▼</span>
+                    </div>
+                    <div class="learn-progress-body">
+                        <div class="learn-concepts-grid" id="learnConceptsGrid"></div>
                     </div>
                 </div>
 
@@ -2093,6 +2255,7 @@
                         <option value="collab">Collab (협업)</option>
                         <option value="debate">Debate (토론)</option>
                         <option value="review">Review (리뷰)</option>
+                        <option value="learn">📚 Learn (학습)</option>
                     </select>
                 </div>
                 <div class="form-group">
