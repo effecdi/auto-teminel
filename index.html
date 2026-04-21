@@ -2246,25 +2246,25 @@
         </div>
 
         <!-- Right: Automation Panel (Tabbed) -->
-        <div class="info-panel">
+        <div class="info-panel edu-expanded">
             <!-- Tab Bar -->
             <div class="auto-tabs-wrapper">
                 <button class="auto-tabs-arrow" id="autoTabsLeft" onclick="scrollAutoTabs(-80)">&#8592;</button>
                 <div class="auto-tabs" id="autoTabsScroll">
-                    <button class="auto-tab active" data-tab="tasks" onclick="switchAutoTab('tasks')">Tasks</button>
+                    <button class="auto-tab active" data-tab="learn" onclick="switchAutoTab('learn')">📚 Learn</button>
+                    <button class="auto-tab" data-tab="tasks" onclick="switchAutoTab('tasks')">Tasks</button>
                     <button class="auto-tab" data-tab="activity" onclick="switchAutoTab('activity')">Activity</button>
                     <button class="auto-tab" data-tab="templates" onclick="switchAutoTab('templates')">Templates</button>
                     <button class="auto-tab" data-tab="schedules" onclick="switchAutoTab('schedules')">Schedules</button>
                     <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
                     <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
                     <button class="auto-tab" data-tab="mcp" onclick="switchAutoTab('mcp'); renderMcpPanel()">MCP</button>
-                    <button class="auto-tab" data-tab="learn" onclick="switchAutoTab('learn')">📚 Learn</button>
                 </div>
                 <button class="auto-tabs-arrow" id="autoTabsRight" onclick="scrollAutoTabs(80)">&#8594;</button>
             </div>
 
             <!-- Tab: Tasks — queue list only (input moved to main area) -->
-            <div class="auto-tab-content active" id="tab-tasks">
+            <div class="auto-tab-content" id="tab-tasks">
                 <div class="tab-scroll" id="tasksList">
                     <div class="history-empty">Add tasks to the queue — they will run sequentially</div>
                 </div>
@@ -2332,7 +2332,7 @@
             </div>
 
             <!-- Tab: Learn (Education Sidebar) -->
-            <div class="auto-tab-content" id="tab-learn">
+            <div class="auto-tab-content active" id="tab-learn">
                 <div class="edu-diff-section" id="eduDiffSection">
                     <button class="edu-diff-toggle" onclick="toggleEduDiff()">
                         📝 최근 변경 코드 <span id="eduDiffCount"></span> <span id="eduDiffArrow">▶</span>

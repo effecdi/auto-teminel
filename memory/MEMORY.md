@@ -39,6 +39,10 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
+- ✅ 완료: v4.8.4 우측 사이드바 SESSION INFO / 대시보드 / Health Check 패널 제거
+  - info-header, info-content (Status/Project/Path/Branch/PID), dashboard-grid (4카드), auto-status-row (4배지), healthCheckDashboard 삭제
+  - 탭바 + 탭 내용(Learn 포함) 유지
+  - 커밋: a20fc1c, 릴리스: v4.8.4
 - ✅ 완료: v4.8.3 Learn Sidebar (우측 info-panel에 📚 Learn 탭 추가)
   - debate-mode Learn(v4.8.0~4.8.2) 유저 거부 → 사이드바 방식 재설계
   - `edu.getDiff` / `edu.ask` / `edu.stop` IPC + streamClaude 직접 호출
@@ -77,7 +81,7 @@
 - `memory/todo.md` — 다음 세션 이어서 할 작업
 
 ## 현재 버전
-- **v4.7.43** (GitHub Release 퍼블리시 완료, 2026-04-09)
+- **v4.8.4** (GitHub Release 퍼블리시 완료, 2026-04-21)
 
 ## 최근 세션 주요 작업 (2026-04-09~10)
 - v4.7.42: autoUpdater 자동 재시작 버그 수정 (사용자 확인 대기)

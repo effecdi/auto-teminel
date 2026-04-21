@@ -139,7 +139,7 @@ const MASTERY_LEVELS = {
 const eduMessages = new Map();       // projectId → [{role, content, timestamp}]
 let eduStreaming = null;             // { role, div, projectId, fullText }
 let eduDiffCache = null;             // cached git diff text
-let eduCurrentTab = false;           // true when Learn tab is active
+let eduCurrentTab = true;            // true when Learn tab is active (default tab)
 
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
