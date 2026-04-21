@@ -139,7 +139,7 @@ const MASTERY_LEVELS = {
 const eduMessages = new Map();       // projectId → [{role, content, timestamp}]
 let eduStreaming = null;             // { role, div, projectId, fullText }
 let eduDiffCache = null;             // cached git diff text
-let eduCurrentTab = true;            // true when Learn tab is active (default tab)
+const eduCurrentTab = true;          // Learn is always visible (fixed top section)
 
 // Session persistence - debounce timer for saving history
 let historySaveTimer = null;
@@ -1558,16 +1558,6 @@ function switchAutoTab(tabName) {
     }
     if (content) content.classList.add('active');
 
-    // Learn tab — expand/collapse info-panel
-    const infoPanel = document.querySelector('.info-panel');
-    if (tabName === 'learn') {
-        eduCurrentTab = true;
-        if (infoPanel) infoPanel.classList.add('edu-expanded');
-        eduFetchDiff();
-    } else {
-        eduCurrentTab = false;
-        if (infoPanel) infoPanel.classList.remove('edu-expanded');
-    }
 }
 
 function scrollAutoTabs(delta) {

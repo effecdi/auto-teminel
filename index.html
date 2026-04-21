@@ -1579,14 +1579,32 @@
             width: 400px;
             transition: width 0.25s ease;
         }
-        #tab-learn {
-            display: none;
+        /* Learn Fixed Section (top, always visible) */
+        .learn-fixed-section {
+            display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
             overflow: hidden;
         }
-        #tab-learn.active {
+        .learn-fixed-header {
+            padding: 7px 12px;
+            background: rgba(88,166,255,0.06);
+            border-bottom: 1px solid var(--border-primary);
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            flex-shrink: 0;
+        }
+        /* Bottom Tabs Section */
+        .bottom-tabs-section {
             display: flex;
+            flex-direction: column;
+            height: 260px;
+            flex-shrink: 0;
+            border-top: 2px solid var(--border-primary);
         }
         /* Diff Section */
         .edu-diff-section {
@@ -2245,94 +2263,11 @@
             </div>
         </div>
 
-        <!-- Right: Automation Panel (Tabbed) -->
+        <!-- Right: Automation Panel (Learn top + Tabs bottom) -->
         <div class="info-panel edu-expanded">
-            <!-- Tab Bar -->
-            <div class="auto-tabs-wrapper">
-                <button class="auto-tabs-arrow" id="autoTabsLeft" onclick="scrollAutoTabs(-80)">&#8592;</button>
-                <div class="auto-tabs" id="autoTabsScroll">
-                    <button class="auto-tab active" data-tab="learn" onclick="switchAutoTab('learn')">📚 Learn</button>
-                    <button class="auto-tab" data-tab="tasks" onclick="switchAutoTab('tasks')">Tasks</button>
-                    <button class="auto-tab" data-tab="activity" onclick="switchAutoTab('activity')">Activity</button>
-                    <button class="auto-tab" data-tab="templates" onclick="switchAutoTab('templates')">Templates</button>
-                    <button class="auto-tab" data-tab="schedules" onclick="switchAutoTab('schedules')">Schedules</button>
-                    <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
-                    <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
-                    <button class="auto-tab" data-tab="mcp" onclick="switchAutoTab('mcp'); renderMcpPanel()">MCP</button>
-                </div>
-                <button class="auto-tabs-arrow" id="autoTabsRight" onclick="scrollAutoTabs(80)">&#8594;</button>
-            </div>
-
-            <!-- Tab: Tasks — queue list only (input moved to main area) -->
-            <div class="auto-tab-content" id="tab-tasks">
-                <div class="tab-scroll" id="tasksList">
-                    <div class="history-empty">Add tasks to the queue — they will run sequentially</div>
-                </div>
-            </div>
-
-            <!-- Tab: Activity — unified automation log -->
-            <div class="auto-tab-content" id="tab-activity">
-                <div class="tab-toolbar">
-                    <span class="activity-summary" id="activitySummary"></span>
-                    <button class="btn-icon-sm" onclick="clearActivity()" title="Clear activity log">🗑️</button>
-                </div>
-                <div class="tab-scroll" id="activityList">
-                    <div class="history-empty">Automation activity will appear here</div>
-                </div>
-            </div>
-
-            <!-- Tab: Templates -->
-            <div class="auto-tab-content" id="tab-templates">
-                <div class="tab-toolbar">
-                    <button class="tab-action-btn" onclick="showTemplateModal()">+ New Template</button>
-                </div>
-                <div class="tab-scroll" id="templatesList">
-                    <div class="history-empty">No templates yet</div>
-                </div>
-            </div>
-
-            <!-- Tab: Schedules -->
-            <div class="auto-tab-content" id="tab-schedules">
-                <div class="tab-toolbar">
-                    <button class="tab-action-btn" onclick="showScheduleModal()">+ New Schedule</button>
-                    <button class="tab-action-btn send-all-btn" onclick="sendToAllProjects()">📡 Send to All</button>
-                </div>
-                <div class="tab-scroll" id="scheduleList">
-                    <div class="history-empty">No schedules yet</div>
-                </div>
-            </div>
-
-            <!-- Tab: Security -->
-            <div class="auto-tab-content" id="tab-security">
-                <div class="tab-toolbar">
-                    <span style="font-size:10px; color:var(--text-muted); flex:1;">Click a check to run it on the current project</span>
-                </div>
-                <div class="tab-scroll" id="securityList"></div>
-            </div>
-
-            <!-- Tab: MCP Manager -->
-            <div class="auto-tab-content" id="tab-mcp">
-                <div class="tab-toolbar">
-                    <span style="font-size:10px; color:var(--text-muted); flex:1;">MCP 서버 연결 상태 및 인증 관리</span>
-                    <button class="btn-icon-sm" onclick="renderMcpPanel()" title="새로고침">↻</button>
-                </div>
-                <div class="tab-scroll" id="mcpList">
-                    <div class="history-empty">MCP 서버 목록을 불러오는 중...</div>
-                </div>
-            </div>
-
-            <!-- Tab: Health Check -->
-            <div class="auto-tab-content" id="tab-health">
-                <div class="hc-section-header">Enabled Checks</div>
-                <div class="hc-checks-list" id="healthCheckChecksList"></div>
-                <div class="hc-section-header">Results</div>
-                <div class="tab-scroll" id="healthCheckResultsList">
-                    <div class="history-empty">No health check results yet. Click "Run Now" to start.</div>
-                </div>
-            </div>
-
-            <!-- Tab: Learn (Education Sidebar) -->
-            <div class="auto-tab-content active" id="tab-learn">
+            <!-- TOP: Learn Section (always visible) -->
+            <div class="learn-fixed-section">
+                <div class="learn-fixed-header">📚 Learn</div>
                 <div class="edu-diff-section" id="eduDiffSection">
                     <button class="edu-diff-toggle" onclick="toggleEduDiff()">
                         📝 최근 변경 코드 <span id="eduDiffCount"></span> <span id="eduDiffArrow">▶</span>
@@ -2355,6 +2290,92 @@
                 <div class="edu-input-area">
                     <textarea id="eduInput" placeholder="코드에 대해 질문..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();eduSendMessage();}"></textarea>
                     <button class="edu-send-btn" id="eduSendBtn" onclick="eduSendMessage()">▶</button>
+                </div>
+            </div>
+
+            <!-- BOTTOM: Other Tabs (Tasks, Activity, etc.) -->
+            <div class="bottom-tabs-section">
+                <!-- Tab Bar -->
+                <div class="auto-tabs-wrapper">
+                    <button class="auto-tabs-arrow" id="autoTabsLeft" onclick="scrollAutoTabs(-80)">&#8592;</button>
+                    <div class="auto-tabs" id="autoTabsScroll">
+                        <button class="auto-tab active" data-tab="tasks" onclick="switchAutoTab('tasks')">Tasks</button>
+                        <button class="auto-tab" data-tab="activity" onclick="switchAutoTab('activity')">Activity</button>
+                        <button class="auto-tab" data-tab="templates" onclick="switchAutoTab('templates')">Templates</button>
+                        <button class="auto-tab" data-tab="schedules" onclick="switchAutoTab('schedules')">Schedules</button>
+                        <button class="auto-tab" data-tab="security" onclick="switchAutoTab('security')">Security</button>
+                        <button class="auto-tab" data-tab="health" onclick="switchAutoTab('health')">Health</button>
+                        <button class="auto-tab" data-tab="mcp" onclick="switchAutoTab('mcp'); renderMcpPanel()">MCP</button>
+                    </div>
+                    <button class="auto-tabs-arrow" id="autoTabsRight" onclick="scrollAutoTabs(80)">&#8594;</button>
+                </div>
+
+                <!-- Tab: Tasks -->
+                <div class="auto-tab-content active" id="tab-tasks">
+                    <div class="tab-scroll" id="tasksList">
+                        <div class="history-empty">Add tasks to the queue — they will run sequentially</div>
+                    </div>
+                </div>
+
+                <!-- Tab: Activity -->
+                <div class="auto-tab-content" id="tab-activity">
+                    <div class="tab-toolbar">
+                        <span class="activity-summary" id="activitySummary"></span>
+                        <button class="btn-icon-sm" onclick="clearActivity()" title="Clear activity log">🗑️</button>
+                    </div>
+                    <div class="tab-scroll" id="activityList">
+                        <div class="history-empty">Automation activity will appear here</div>
+                    </div>
+                </div>
+
+                <!-- Tab: Templates -->
+                <div class="auto-tab-content" id="tab-templates">
+                    <div class="tab-toolbar">
+                        <button class="tab-action-btn" onclick="showTemplateModal()">+ New Template</button>
+                    </div>
+                    <div class="tab-scroll" id="templatesList">
+                        <div class="history-empty">No templates yet</div>
+                    </div>
+                </div>
+
+                <!-- Tab: Schedules -->
+                <div class="auto-tab-content" id="tab-schedules">
+                    <div class="tab-toolbar">
+                        <button class="tab-action-btn" onclick="showScheduleModal()">+ New Schedule</button>
+                        <button class="tab-action-btn send-all-btn" onclick="sendToAllProjects()">📡 Send to All</button>
+                    </div>
+                    <div class="tab-scroll" id="scheduleList">
+                        <div class="history-empty">No schedules yet</div>
+                    </div>
+                </div>
+
+                <!-- Tab: Security -->
+                <div class="auto-tab-content" id="tab-security">
+                    <div class="tab-toolbar">
+                        <span style="font-size:10px; color:var(--text-muted); flex:1;">Click a check to run it on the current project</span>
+                    </div>
+                    <div class="tab-scroll" id="securityList"></div>
+                </div>
+
+                <!-- Tab: MCP Manager -->
+                <div class="auto-tab-content" id="tab-mcp">
+                    <div class="tab-toolbar">
+                        <span style="font-size:10px; color:var(--text-muted); flex:1;">MCP 서버 연결 상태 및 인증 관리</span>
+                        <button class="btn-icon-sm" onclick="renderMcpPanel()" title="새로고침">↻</button>
+                    </div>
+                    <div class="tab-scroll" id="mcpList">
+                        <div class="history-empty">MCP 서버 목록을 불러오는 중...</div>
+                    </div>
+                </div>
+
+                <!-- Tab: Health Check -->
+                <div class="auto-tab-content" id="tab-health">
+                    <div class="hc-section-header">Enabled Checks</div>
+                    <div class="hc-checks-list" id="healthCheckChecksList"></div>
+                    <div class="hc-section-header">Results</div>
+                    <div class="tab-scroll" id="healthCheckResultsList">
+                        <div class="history-empty">No health check results yet. Click "Run Now" to start.</div>
+                    </div>
                 </div>
             </div>
         </div>
