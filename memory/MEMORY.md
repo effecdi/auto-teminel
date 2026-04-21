@@ -39,8 +39,11 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
-- 🔴 현재 진행 중: (없음)
-- 📋 직전 작업: Meetfolio PWA 완성 (`/Users/ihyeonjeong/meetfolio/`) — 사용자 테스트 중
+- ✅ 완료: v4.8.3 Learn Sidebar (우측 info-panel에 📚 Learn 탭 추가)
+  - debate-mode Learn(v4.8.0~4.8.2) 유저 거부 → 사이드바 방식 재설계
+  - `edu.getDiff` / `edu.ask` / `edu.stop` IPC + streamClaude 직접 호출
+  - 커밋: 38c6b2f, 릴리스: v4.8.3
+- 📋 직전 작업: Meetfolio PWA + Learn Mode 구현
 
 ## 최근 세션 주요 작업 (2026-04-16)
 - **AI 미팅 캔버스 웹앱** 생성 (`meeting-canvas/index.html`)
