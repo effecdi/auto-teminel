@@ -495,7 +495,7 @@ ipcRenderer.on('terminal.exit', (event, { projectId, exitCode, signal }) => {
 
     if (currentProject && currentProject.id === projectId) {
         updateStatus('disconnected', 'Process Exited');
-        document.getElementById('terminalStatus').textContent = `Exited (code ${exitCode})`;
+        { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = `Exited (code ${exitCode})`; }
     }
 
     renderDashboard(); // PTY 종료 시 대시보드 갱신 (배지 inactive 반영)
@@ -530,7 +530,7 @@ async function ensurePtyRunning(project) {
     _spawningProjects.add(project.id);
 
     updateStatus('running', 'Starting...');
-    document.getElementById('terminalStatus').textContent = 'Starting...';
+    { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Starting...'; }
 
     const cols = entry ? entry.term.cols : 120;
     const rows = entry ? entry.term.rows : 30;
@@ -550,8 +550,8 @@ async function ensurePtyRunning(project) {
     if (result.success) {
         if (entry) entry.isAlive = true;
         updateStatus('ready', 'Claude CLI Running');
-        document.getElementById('terminalStatus').textContent = 'Running';
-        document.getElementById('infoPid').textContent = result.pid || '—';
+        { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Running'; }
+        { const _el = document.getElementById('infoPid'); if (_el) _el.textContent = result.pid || '—'; }
 
         if (result.alreadyRunning) {
             console.log('PTY was already running on backend');
@@ -567,7 +567,7 @@ async function ensurePtyRunning(project) {
             entry.term.write(`  3. Shell binary not found (check Settings > Shell Path)\r\n`);
         }
         updateStatus('error', 'Spawn Failed');
-        document.getElementById('terminalStatus').textContent = 'Error';
+        { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Error'; }
     }
 
     _spawningProjects.delete(project.id);
@@ -697,7 +697,7 @@ async function selectProject(projectId) {
 
     if (entry.isAlive) {
         updateStatus('ready', 'Claude CLI Running');
-        document.getElementById('terminalStatus').textContent = 'Running';
+        { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Running'; }
         // Terminal is up — kick the queue in case tasks are waiting
         setTimeout(() => ipcRenderer.invoke('queue.kick'), 500);
     }
@@ -756,7 +756,7 @@ async function killTerminal() {
     }
 
     updateStatus('disconnected', 'Killed');
-    document.getElementById('terminalStatus').textContent = 'Killed';
+    { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Killed'; }
 }
 
 // ===================================================================
@@ -4943,8 +4943,8 @@ ipcRenderer.on('autoRestart.spawned', (event, { projectId, pid }) => {
     }
     if (currentProject && currentProject.id === projectId) {
         updateStatus('ready', 'Claude CLI Running');
-        document.getElementById('terminalStatus').textContent = 'Running';
-        document.getElementById('infoPid').textContent = pid || '—';
+        { const _el = document.getElementById('terminalStatus'); if (_el) _el.textContent = 'Running'; }
+        { const _el = document.getElementById('infoPid'); if (_el) _el.textContent = pid || '—'; }
     }
     renderProjects();
     addActivity('restart', `Restarted: ${project ? project.name : projectId} (PID: ${pid})`);
