@@ -704,10 +704,14 @@ async function selectProject(projectId) {
 }
 
 function updateInfoPanel(project) {
-    document.getElementById('infoProject').textContent = project.name;
-    document.getElementById('infoPath').textContent = project.path;
-    document.getElementById('infoBranch').textContent = project.branch || '—';
-    document.getElementById('infoPid').textContent = '—';
+    const elProject = document.getElementById('infoProject');
+    const elPath = document.getElementById('infoPath');
+    const elBranch = document.getElementById('infoBranch');
+    const elPid = document.getElementById('infoPid');
+    if (elProject) elProject.textContent = project.name;
+    if (elPath) elPath.textContent = project.path;
+    if (elBranch) elBranch.textContent = project.branch || '—';
+    if (elPid) elPid.textContent = '—';
 }
 
 // ===================================================================
