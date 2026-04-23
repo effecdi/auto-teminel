@@ -3282,6 +3282,51 @@ ipcMain.handle('ai.setSettings', (event, settings) => {
 });
 
 // ===================================================================
+//  Scenario.gg — Image Generation API
+// ===================================================================
+
+ipcMain.handle('scenario.getSettings', () => {
+    return {
+        scenarioApiKey: store.get('scenarioApiKey', ''),
+        scenarioApiSecret: store.get('scenarioApiSecret', ''),
+        scenarioModelId: store.get('scenarioModelId', ''),
+    };
+});
+
+ipcMain.handle('scenario.setSettings', (event, settings) => {
+    if (settings.scenarioApiKey !== undefined) store.set('scenarioApiKey', settings.scenarioApiKey);
+    if (settings.scenarioApiSecret !== undefined) store.set('scenarioApiSecret', settings.scenarioApiSecret);
+    if (settings.scenarioModelId !== undefined) store.set('scenarioModelId', settings.scenarioModelId);
+    return { success: true };
+});
+
+ipcMain.handle('scenario.fetchModels', async () => {
+    const apiKey = store.get('scenarioApiKey', '');
+    const apiSecret = store.get('scenarioApiSecret', '');
+    if (!apiKey || !apiSecret) return { success: false, error: 'API Key와 Secret을 먼저 입력하세요.' };
+
+    const authHeader = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
+    try {
+        const resp = await fetch('https://api.scenario.gg/v1/models?pageSize=100', {
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            return { success: false, error: `API 오류 ${resp.status}: ${text.substring(0, 200)}` };
+        }
+        const data = await resp.json();
+        const models = (data.models || data.items || []).map(m => ({
+            id: m.id,
+            name: m.name || m.id,
+            status: m.status || '',
+        }));
+        return { success: true, models };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+// ===================================================================
 //  Pipeline — Codex-style AI Orchestration (Gemini design → Claude execute)
 // ===================================================================
 

@@ -1421,8 +1421,9 @@ function openSettings() {
         ipcRenderer.invoke('autoFix.getSettings'),
         ipcRenderer.invoke('autoRestart.getSettings'),
         ipcRenderer.invoke('healthCheck.getSettings'),
-        ipcRenderer.invoke('ai.getSettings')
-    ]).then(([s, af, ar, hc, ai]) => {
+        ipcRenderer.invoke('ai.getSettings'),
+        ipcRenderer.invoke('scenario.getSettings')
+    ]).then(([s, af, ar, hc, ai, sc]) => {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
@@ -1441,6 +1442,11 @@ function openSettings() {
         document.getElementById('aiDefaultAiMode').value = ai.aiDefaultAiMode || 'dual';
         document.getElementById('aiMaxRounds').value = ai.aiMaxRounds || 1;
         document.getElementById('aiIncludeSource').checked = ai.aiIncludeSource || false;
+        // Scenario.gg settings
+        document.getElementById('scenarioApiKey').value = sc.scenarioApiKey || '';
+        document.getElementById('scenarioApiSecret').value = sc.scenarioApiSecret || '';
+        document.getElementById('scenarioModelId').value = sc.scenarioModelId || '';
+        document.getElementById('scenarioModelList').style.display = 'none';
         showModal('settingsModal');
     });
 }
@@ -1528,6 +1534,13 @@ async function saveSettings() {
         aiIncludeSource
     });
 
+    // Scenario.gg settings
+    await ipcRenderer.invoke('scenario.setSettings', {
+        scenarioApiKey: document.getElementById('scenarioApiKey').value.trim(),
+        scenarioApiSecret: document.getElementById('scenarioApiSecret').value.trim(),
+        scenarioModelId: document.getElementById('scenarioModelId').value.trim(),
+    });
+
     // Apply AI defaults to current selects
     const debateModeEl = document.getElementById('aiDebateMode');
     const aiModeEl = document.getElementById('aiAiMode');
@@ -1543,6 +1556,39 @@ async function saveSettings() {
     if (currentProject) {
         const entry = termPool.get(currentProject.id);
         if (entry) fitEntry(entry);
+    }
+}
+
+async function scenarioFetchModels() {
+    const btn = document.querySelector('#settingsModal button[onclick="scenarioFetchModels()"]');
+    if (btn) { btn.textContent = '로딩 중...'; btn.disabled = true; }
+
+    // 현재 입력값 임시 저장 후 API 호출
+    await ipcRenderer.invoke('scenario.setSettings', {
+        scenarioApiKey: document.getElementById('scenarioApiKey').value.trim(),
+        scenarioApiSecret: document.getElementById('scenarioApiSecret').value.trim(),
+        scenarioModelId: document.getElementById('scenarioModelId').value.trim(),
+    });
+
+    const result = await ipcRenderer.invoke('scenario.fetchModels');
+
+    if (btn) { btn.textContent = '모델 가져오기'; btn.disabled = false; }
+
+    if (!result.success) {
+        alert('모델 가져오기 실패: ' + result.error);
+        return;
+    }
+
+    const select = document.getElementById('scenarioModelSelect');
+    select.innerHTML = result.models.map(m =>
+        `<option value="${m.id}">${m.name} (${m.id})</option>`
+    ).join('');
+
+    const listEl = document.getElementById('scenarioModelList');
+    listEl.style.display = result.models.length ? 'block' : 'none';
+
+    if (result.models.length === 0) {
+        alert('사용 가능한 모델이 없습니다.');
     }
 }
 

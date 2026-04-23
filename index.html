@@ -2546,6 +2546,31 @@
                 </div>
 
                 <hr style="border-color: var(--border-primary); margin: 16px 0;">
+                <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Scenario.gg Image Generation</h3>
+
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="scenarioApiKey" placeholder="scenario_...">
+                    <small>Scenario.gg 대시보드 → Settings → API Keys</small>
+                </div>
+                <div class="form-group">
+                    <label>API Secret</label>
+                    <input type="password" id="scenarioApiSecret" placeholder="secret...">
+                </div>
+                <div class="form-group">
+                    <label>Model ID</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" id="scenarioModelId" placeholder="모델 ID (수동 입력 or 아래 목록에서 선택)" style="flex:1;">
+                        <button class="btn-secondary" style="white-space:nowrap;" onclick="scenarioFetchModels()">모델 가져오기</button>
+                    </div>
+                </div>
+                <div id="scenarioModelList" style="display:none;margin-top:8px;">
+                    <label style="font-size:12px;color:var(--text-secondary);">사용 가능한 모델</label>
+                    <select id="scenarioModelSelect" class="form-select" style="margin-top:4px;" onchange="document.getElementById('scenarioModelId').value=this.value">
+                    </select>
+                </div>
+
+                <hr style="border-color: var(--border-primary); margin: 16px 0;">
                 <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Auto-Fix Settings</h3>
 
                 <div class="form-group">
