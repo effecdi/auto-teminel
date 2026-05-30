@@ -137,6 +137,23 @@ function startTaskPersistTimer() {
 }
 
 // ===================================================================
+//  AI Chat History Persistence — save/restore conversations across restarts
+// ===================================================================
+const AI_CHAT_HISTORY_PREFIX = 'aiChatHistory_';
+const AI_CHAT_MAX_MESSAGES = 200;
+const AI_CHAT_PERSIST_INTERVAL = 15000; // 15 seconds
+let aiChatPersistTimer = null;
+
+function startAiChatPersistTimer() {
+    if (aiChatPersistTimer) return;
+    aiChatPersistTimer = setInterval(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('aiChat.requestPersist');
+        }
+    }, AI_CHAT_PERSIST_INTERVAL);
+}
+
+// ===================================================================
 //  Auto-Restart — respawn PTY on abnormal exit
 // ===================================================================
 let autoRestartEnabled = true;
@@ -1122,6 +1139,9 @@ app.on('activate', () => {
 app.on('before-quit', () => {
     // Persist pending/running tasks so they survive restarts
     persistTaskQueue();
+
+    // Clean up AI chat persist timer
+    if (aiChatPersistTimer) { clearInterval(aiChatPersistTimer); aiChatPersistTimer = null; }
 
     for (const tmpPath of tempImageFiles) {
         try { fs.unlinkSync(tmpPath); } catch (_) {}
@@ -2746,6 +2766,28 @@ ipcMain.handle('session.getActiveSessionProjects', () => {
 });
 
 // ===================================================================
+//  AI Chat History Persistence (IPC)
+// ===================================================================
+
+ipcMain.handle('aiChat.saveHistory', (event, { projectId, messages }) => {
+    if (!projectId || !Array.isArray(messages)) return { success: false };
+    const trimmed = messages.slice(-AI_CHAT_MAX_MESSAGES);
+    store.set(`${AI_CHAT_HISTORY_PREFIX}${projectId}`, trimmed);
+    return { success: true };
+});
+
+ipcMain.handle('aiChat.getHistory', (event, { projectId }) => {
+    if (!projectId) return [];
+    return store.get(`${AI_CHAT_HISTORY_PREFIX}${projectId}`, []);
+});
+
+ipcMain.handle('aiChat.clearHistory', (event, { projectId }) => {
+    if (!projectId) return { success: false };
+    store.delete(`${AI_CHAT_HISTORY_PREFIX}${projectId}`);
+    return { success: true };
+});
+
+// ===================================================================
 //  Auto-Restart Settings
 // ===================================================================
 
@@ -3044,7 +3086,7 @@ ipcMain.handle('ai.start', async (event, { projectId, task, mode, aiMode, operat
 
     const effectiveMode = mode || 'collab';
     const callbacks = makeDebateCallbacks(projectId, {
-        autoExecute: effectiveMode !== 'learn',
+        autoExecute: false,
         mode: effectiveMode,
     });
     engine.start(task, callbacks, {
@@ -3101,9 +3143,24 @@ ipcMain.handle('ai.continue', async (event, { projectId, message, mode, aiMode, 
         console.log(`[AI] Reusing cached project context for continue (saves ~3K-10K tokens)`);
     }
 
+    // If engine has no history (fresh after app restart), seed from persisted messages
+    if (engine.history.length === 0) {
+        const savedMessages = store.get(`${AI_CHAT_HISTORY_PREFIX}${projectId}`, []);
+        if (savedMessages.length > 0) {
+            const recentForEngine = savedMessages.slice(-6);
+            for (const msg of recentForEngine) {
+                engine.history.add(msg.role, msg.content);
+            }
+            // Set essential engine properties for fresh-after-restart scenario
+            engine.geminiApiKey = store.get('geminiApiKey', '');
+            engine.sessionId = require('crypto').randomUUID();
+            safelog(`[AI] Seeded engine history from persisted data: ${recentForEngine.length} messages`);
+        }
+    }
+
     const effectiveMode = mode || engine.mode;
     const callbacks = makeDebateCallbacks(projectId, {
-        autoExecute: effectiveMode !== 'learn',
+        autoExecute: false,
         mode: effectiveMode,
     });
     // Do not await — let it run in background, IPC events will stream results
@@ -3491,6 +3548,9 @@ app.whenReady().then(() => {
         // Restore pending tasks from previous session (crash/sudden exit recovery)
         restoreTaskQueue();
         startTaskPersistTimer();
+
+        // Start AI chat history periodic save
+        startAiChatPersistTimer();
 
         // Start Remote Control API server
         const remoteApiKey = process.env.REMOTE_API_KEY;

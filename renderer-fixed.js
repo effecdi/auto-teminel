@@ -86,6 +86,50 @@ const aiChatActiveMap = new Map();   // projectId -> null | 'claude' | 'gemini' 
 const aiChatDrafts = new Map();      // projectId -> string (per-project textarea draft)
 let _aiTabRenderTimer = null;        // debounce for tab badge updates
 
+// --- AI Chat Persistence Helpers ---
+const _aiChatDirty = new Set(); // projectIds with unsaved changes
+
+function markAiChatDirty(projectId) {
+    _aiChatDirty.add(projectId);
+}
+
+async function persistAiChatHistory(projectId) {
+    const messages = aiChatMessages.get(projectId);
+    if (!messages || messages.length === 0) return;
+    try {
+        await ipcRenderer.invoke('aiChat.saveHistory', { projectId, messages });
+        _aiChatDirty.delete(projectId);
+    } catch (e) {
+        console.error('[AI Chat] Failed to persist history:', e.message);
+    }
+}
+
+async function persistAllDirtyChats() {
+    for (const projectId of _aiChatDirty) {
+        await persistAiChatHistory(projectId);
+    }
+}
+
+async function restoreAiChatHistory(projectId) {
+    try {
+        const saved = await ipcRenderer.invoke('aiChat.getHistory', { projectId });
+        if (saved && saved.length > 0) {
+            aiChatMessages.set(projectId, saved);
+            aiChatStarted.set(projectId, true);
+            console.log(`[AI Chat] Restored ${saved.length} messages for project ${projectId}`);
+            return true;
+        }
+    } catch (e) {
+        console.error('[AI Chat] Failed to restore history:', e.message);
+    }
+    return false;
+}
+
+// Listen for periodic persist request from main process
+ipcRenderer.on('aiChat.requestPersist', () => {
+    persistAllDirtyChats();
+});
+
 // AI Recommendation Buttons
 const AI_RECOMMENDATION_BUTTONS = [
     '이어서 더 자세히 설명해줘',
@@ -234,6 +278,11 @@ async function init() {
         }
 
         await loadProjects();
+
+        // Restore AI chat histories for all projects
+        for (const project of projects) {
+            await restoreAiChatHistory(project.id);
+        }
 
         // Restore last selected project, fallback to first
         const lastProjectId = await ipcRenderer.invoke('session.getLastSelectedProject');
@@ -671,6 +720,11 @@ async function selectProject(projectId) {
     renderProjectInfo();
     updateInfoPanel(currentProject);
     updateAiChatHeader();
+
+    // Restore AI chat history from disk if not already in memory
+    if (!aiChatMessages.has(projectId) || aiChatMessages.get(projectId).length === 0) {
+        await restoreAiChatHistory(projectId);
+    }
 
     // Re-render AI chat if in chat mode
     if (aiChatMode) {
@@ -1389,6 +1443,7 @@ async function deleteProject(projectId) {
     // Clean up all per-project state maps to prevent memory leaks
     aiChatMessages.delete(projectId);
     aiChatStarted.delete(projectId);
+    ipcRenderer.invoke('aiChat.clearHistory', { projectId }).catch(() => {});
     attachedImagesMap.delete(projectId);
     idleState.delete(projectId);
     ccStateMap.delete(projectId);
@@ -3125,6 +3180,7 @@ async function sendAiMessage() {
     // Add user message to local state
     if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
     aiChatMessages.get(projectId).push({ role: 'user', content: displayText, timestamp: Date.now() });
+    markAiChatDirty(projectId);
     appendAiMessage('user', displayText);
 
     // Show status bar
@@ -3410,6 +3466,9 @@ function resetAiChat() {
 
     // Reset conversation in backend
     ipcRenderer.invoke('ai.reset', { projectId }).catch(() => {});
+
+    // Clear persisted history on disk
+    ipcRenderer.invoke('aiChat.clearHistory', { projectId }).catch(() => {});
 
     // Hide indicators
     hideAiSpeakingIndicator();
@@ -3762,6 +3821,8 @@ function finalizeStreamMessage(fullText) {
     if (targetProjectId) {
         if (!aiChatMessages.has(targetProjectId)) aiChatMessages.set(targetProjectId, []);
         aiChatMessages.get(targetProjectId).push({ role, content: fullText, timestamp: Date.now() });
+        markAiChatDirty(targetProjectId);
+        persistAiChatHistory(targetProjectId); // Immediate save on AI response complete
     }
 
     const container = document.getElementById('aiChatMessages');
@@ -4218,6 +4279,8 @@ function _bgBufferFinalize(projectId, fullText) {
     if (text) {
         if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
         aiChatMessages.get(projectId).push({ role: buf.role, content: text, timestamp: Date.now() });
+        markAiChatDirty(projectId);
+        persistAiChatHistory(projectId); // Immediate save for background AI response
     }
     aiBgStreamBuffer.delete(projectId);
 }
@@ -4374,6 +4437,7 @@ ipcRenderer.on('ai.executionQueued', (event, { projectId, mode }) => {
         // Save as system message for background project
         if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
         aiChatMessages.get(projectId).push({ role: 'system', content: `${mode || '협업'} 완료 → 터미널에서 코드 적용 시작!`, timestamp: Date.now() });
+        markAiChatDirty(projectId);
     }
 });
 
@@ -4421,6 +4485,7 @@ ipcRenderer.on('ai.error', (event, { projectId, message, source }) => {
         if (aiBgStreamBuffer.has(projectId)) _bgBufferFinalize(projectId);
         if (!aiChatMessages.has(projectId)) aiChatMessages.set(projectId, []);
         aiChatMessages.get(projectId).push({ role: 'error', content: `[${source || 'AI'}] ${message}`, timestamp: Date.now() });
+        markAiChatDirty(projectId);
     }
 });
 
