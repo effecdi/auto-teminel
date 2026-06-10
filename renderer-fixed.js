@@ -585,7 +585,7 @@ async function ensurePtyRunning(project) {
     const rows = entry ? entry.term.rows : 30;
 
     // Include selected model in spawn args
-    const selectedModel = localStorage.getItem(`model_${project.id}`) || 'claude-sonnet-4-6';
+    const selectedModel = localStorage.getItem(`model_${project.id}`) || 'sonnet';
 
     const result = await ipcRenderer.invoke('terminal.spawn', {
         projectId: project.id,
@@ -678,7 +678,7 @@ async function selectProject(projectId) {
     // Restore model selector for this project
     const modelSelect = document.getElementById('modelSelect');
     if (modelSelect) {
-        const savedModel = localStorage.getItem(`model_${projectId}`) || 'claude-sonnet-4-6';
+        const savedModel = localStorage.getItem(`model_${projectId}`) || 'sonnet';
         modelSelect.value = savedModel;
     }
 
