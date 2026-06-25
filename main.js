@@ -3522,6 +3522,51 @@ ipcMain.handle('updater.getVersion', () => {
     return app.getVersion();
 });
 
+// ===================================================================
+//  Model List — fetch from GitHub, fallback to local models.json
+// ===================================================================
+let _cachedModels = null;
+let _modelsFetchedAt = 0;
+const MODELS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
+ipcMain.handle('models.list', async () => {
+    const now = Date.now();
+    if (_cachedModels && (now - _modelsFetchedAt) < MODELS_CACHE_TTL) {
+        return _cachedModels;
+    }
+    const remoteUrl = 'https://raw.githubusercontent.com/effecdi/auto-teminel/main/models.json';
+    try {
+        const https = require('https');
+        const json = await new Promise((resolve, reject) => {
+            const req = https.get(remoteUrl, { timeout: 5000 }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(data));
+            });
+            req.on('error', reject);
+            req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        });
+        const parsed = JSON.parse(json);
+        _cachedModels = parsed;
+        _modelsFetchedAt = now;
+        safelog('[Models] Fetched remote model list, lastUpdated:', parsed.lastUpdated);
+        return parsed;
+    } catch (err) {
+        safelog('[Models] Remote fetch failed:', err.message, '— using local fallback');
+        try {
+            const localPath = path.join(__dirname, 'models.json');
+            const local = JSON.parse(fs.readFileSync(localPath, 'utf-8'));
+            _cachedModels = local;
+            _modelsFetchedAt = now;
+            return local;
+        } catch (e2) {
+            safelog('[Models] Local fallback also failed:', e2.message);
+            return null;
+        }
+    }
+});
+
 // Load schedules on startup (after a short delay to let window load)
 app.whenReady().then(() => {
     setTimeout(() => {

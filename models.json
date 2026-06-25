@@ -1,0 +1,17 @@
+{
+  "lastUpdated": "2026-06-10",
+  "aliases": [
+    { "value": "opus", "label": "Opus (Latest)", "tier": "latest" },
+    { "value": "sonnet", "label": "Sonnet (Latest)", "tier": "latest" },
+    { "value": "haiku", "label": "Haiku (Latest)", "tier": "latest" }
+  ],
+  "models": [
+    { "value": "claude-fable-5", "label": "Fable 5", "tier": "flagship" },
+    { "value": "claude-opus-4-8", "label": "Opus 4.8", "tier": "current" },
+    { "value": "claude-sonnet-4-6", "label": "Sonnet 4.6", "tier": "current" },
+    { "value": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "tier": "current" },
+    { "value": "claude-opus-4-7", "label": "Opus 4.7", "tier": "legacy" },
+    { "value": "claude-opus-4-6", "label": "Opus 4.6", "tier": "legacy" },
+    { "value": "claude-sonnet-4-5-20250929", "label": "Sonnet 4.5", "tier": "legacy" }
+  ]
+}

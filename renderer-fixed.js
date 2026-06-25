@@ -6426,6 +6426,55 @@ ipcRenderer.on('browser.aiStep', (event, step) => {
 //  Model Selector
 // ===================================================================
 
+async function populateModelSelect() {
+    const modelSelect = document.getElementById('modelSelect');
+    if (!modelSelect) return;
+    try {
+        const data = await ipcRenderer.invoke('models.list');
+        if (!data || (!data.aliases && !data.models)) return;
+        const savedModel = currentProject
+            ? localStorage.getItem(`model_${currentProject.id}`) || 'sonnet'
+            : 'sonnet';
+        modelSelect.innerHTML = '';
+        if (data.aliases && data.aliases.length) {
+            const grp = document.createElement('optgroup');
+            grp.label = 'Latest (자동 업데이트)';
+            for (const m of data.aliases) {
+                const opt = document.createElement('option');
+                opt.value = m.value;
+                opt.textContent = m.label;
+                if (m.value === savedModel) opt.selected = true;
+                grp.appendChild(opt);
+            }
+            modelSelect.appendChild(grp);
+        }
+        const tiers = [
+            { key: 'flagship', label: 'Flagship' },
+            { key: 'current', label: 'Specific Version' },
+            { key: 'legacy', label: 'Legacy' }
+        ];
+        for (const tier of tiers) {
+            const items = (data.models || []).filter(m => m.tier === tier.key);
+            if (!items.length) continue;
+            const grp = document.createElement('optgroup');
+            grp.label = tier.label;
+            for (const m of items) {
+                const opt = document.createElement('option');
+                opt.value = m.value;
+                opt.textContent = m.label;
+                if (m.value === savedModel) opt.selected = true;
+                grp.appendChild(opt);
+            }
+            modelSelect.appendChild(grp);
+        }
+        if (!modelSelect.querySelector(`option[value="${savedModel}"]`)) {
+            modelSelect.value = 'sonnet';
+        }
+    } catch (err) {
+        console.error('[Models] Failed to populate model select:', err);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const modelSelect = document.getElementById('modelSelect');
     if (modelSelect) {
@@ -6440,6 +6489,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    populateModelSelect();
 });
 
 // ===================================================================
