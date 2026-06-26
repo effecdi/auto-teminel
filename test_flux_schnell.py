@@ -4,7 +4,7 @@ FLUX.1-schnell 로컬 — QuantoConfig로 로딩 시 양자화 (OOM 방지)
 import os
 os.environ["HF_HUB_CACHE"] = "/Volumes/TrainingHDD/.cache/huggingface/hub"
 os.environ["TRANSFORMERS_CACHE"] = "/Volumes/TrainingHDD/.cache/huggingface/hub"
-os.environ["HF_TOKEN"] = "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"
+os.environ["HF_TOKEN"] = os.environ.get("HF_TOKEN", "")
 
 import torch
 import gc
