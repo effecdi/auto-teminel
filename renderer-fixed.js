@@ -585,7 +585,7 @@ async function ensurePtyRunning(project) {
     const rows = entry ? entry.term.rows : 30;
 
     // Include selected model in spawn args
-    const selectedModel = localStorage.getItem(`model_${project.id}`) || 'sonnet';
+    const selectedModel = localStorage.getItem(`model_${project.id}`) || 'opus';
 
     const result = await ipcRenderer.invoke('terminal.spawn', {
         projectId: project.id,
@@ -678,7 +678,7 @@ async function selectProject(projectId) {
     // Restore model selector for this project
     const modelSelect = document.getElementById('modelSelect');
     if (modelSelect) {
-        const savedModel = localStorage.getItem(`model_${projectId}`) || 'sonnet';
+        const savedModel = localStorage.getItem(`model_${projectId}`) || 'opus';
         modelSelect.value = savedModel;
     }
 
@@ -6433,8 +6433,8 @@ async function populateModelSelect() {
         const data = await ipcRenderer.invoke('models.list');
         if (!data || (!data.aliases && !data.models)) return;
         const savedModel = currentProject
-            ? localStorage.getItem(`model_${currentProject.id}`) || 'sonnet'
-            : 'sonnet';
+            ? localStorage.getItem(`model_${currentProject.id}`) || 'opus'
+            : 'opus';
         modelSelect.innerHTML = '';
         if (data.aliases && data.aliases.length) {
             const grp = document.createElement('optgroup');
@@ -6468,7 +6468,7 @@ async function populateModelSelect() {
             modelSelect.appendChild(grp);
         }
         if (!modelSelect.querySelector(`option[value="${savedModel}"]`)) {
-            modelSelect.value = 'sonnet';
+            modelSelect.value = 'opus';
         }
     } catch (err) {
         console.error('[Models] Failed to populate model select:', err);
