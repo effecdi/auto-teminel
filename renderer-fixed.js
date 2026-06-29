@@ -446,24 +446,6 @@ async function getOrCreateTerminal(project) {
     term.loadAddon(fitAddon);
     term.open(wrapper);
 
-    // Enable text selection even when CLI uses mouse mode
-    const screen = wrapper.querySelector('.xterm-screen');
-    if (screen) {
-        screen.addEventListener('mousedown', (e) => {
-            if (e.button === 0) {
-                screen.style.pointerEvents = 'auto';
-            }
-        });
-    }
-
-    // Copy selected text on selection
-    term.onSelectionChange(() => {
-        const sel = term.getSelection();
-        if (sel) {
-            clipboard.writeText(sel);
-        }
-    });
-
     const entry = {
         term,
         fitAddon,
