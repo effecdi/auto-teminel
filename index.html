@@ -45,6 +45,33 @@
             --bubble-shadow: 0 6px 20px rgba(0,0,0,0.3);
         }
 
+        /* ── Terminal Container ── */
+        #terminal-container { position: relative; flex: 1; overflow: hidden; }
+
+        /* ── Drop Overlay (file drag & drop) ── */
+        .drop-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 230, 118, 0.08);
+            border: 2px dashed var(--accent);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .drop-overlay.visible { display: flex; }
+        .drop-overlay-content {
+            color: var(--accent);
+            font-size: 18px;
+            font-weight: 600;
+            pointer-events: none;
+        }
+
+        /* ── Terminal text selection fix ── */
+        .xterm { cursor: text !important; }
+        .xterm .xterm-screen { cursor: text !important; }
+
         .toolbar-btn-ai { color: var(--claude-accent); font-weight: 600; font-size: 14px; }
         .toolbar-btn-ai.active { background: rgba(0,230,118,0.15); color: var(--claude-accent); border-color: var(--claude-accent); }
         .toolbar-separator { color: var(--text-muted); margin: 0 10px; user-select: none; font-size: 15px; }
