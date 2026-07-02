@@ -454,10 +454,19 @@ async function getOrCreateTerminal(project) {
         isAlive: false
     };
 
-    // Terminal is read-only — block all user keyboard input.
-    // Only programmatic sends (queue system, auto-fix, etc.) go through.
+    // Terminal is read-only for the KEYBOARD — user keystrokes are blocked
+    // (commands only go through the queue system / auto-fix, etc.).
+    // BUT mouse events (wheel/click) must be forwarded to the PTY: Claude CLI
+    // runs in the alternate screen buffer with mouse tracking enabled
+    // (\x1b[?1049h + \x1b[?1000/1002/1003/1006h), so it handles its OWN
+    // scrolling. If we swallow the mouse sequences, wheel scroll does nothing.
+    // xterm emits SGR mouse events as "\x1b[<...M/m" (and legacy X10 as "\x1b[M").
     term.onData((data) => {
-        // Silently ignore user keystrokes
+        if (typeof data === 'string' && data.charCodeAt(0) === 0x1b &&
+            (data.indexOf('[<') === 1 || data.indexOf('[M') === 1)) {
+            ipcRenderer.send('terminal.keystroke', { projectId: id, data });
+        }
+        // else: ignore keyboard keystrokes (read-only terminal)
     });
 
     termPool.set(id, entry);
