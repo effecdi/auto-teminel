@@ -19,6 +19,7 @@ const { buildProjectContext, getOperationsList } = require('./project-context');
 const { streamClaude } = require('./ai-clients');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
 const { autoUpdater } = require('electron-updater');
+const { initAgentV2Defaults } = require('./agent/settings-defaults');
 
 // Prevent EPIPE crashes when stdout/stderr pipes are closed during shutdown
 process.stdout?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
@@ -945,6 +946,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    // Stage 0 — agentV2 baseline: seed default settings if absent (no behavior change).
+    try { initAgentV2Defaults(store); } catch (e) { console.error('[agentV2] initDefaults failed:', e); }
+
     // macOS에서 Cmd+C/V/X/A 등 기본 단축키가 textarea/input에서 동작하려면
     // Edit 메뉴가 반드시 있어야 함
     const template = [
