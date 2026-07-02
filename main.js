@@ -3330,6 +3330,11 @@ ipcMain.handle('ai.getSettings', () => {
         aiDefaultAiMode: store.get('aiDefaultAiMode', 'dual'),
         aiMaxRounds: store.get('aiMaxRounds', 1),
         aiIncludeSource: store.get('aiIncludeSource', false),
+        // agentV2 Stage 2: Claude backend selection. 'cli' (default, free) | 'api' (opt-in, per-token cost).
+        claudeMode: store.get('claudeMode', 'cli'),
+        // Don't leak the raw API key to the renderer — only report whether one is set.
+        hasAnthropicApiKey: !!store.get('anthropicApiKey', ''),
+        claudeApiModel: store.get('claudeApiModel', ''),
     };
 });
 
@@ -3339,6 +3344,10 @@ ipcMain.handle('ai.setSettings', (event, settings) => {
     if (settings.aiDefaultAiMode !== undefined) store.set('aiDefaultAiMode', settings.aiDefaultAiMode);
     if (settings.aiMaxRounds !== undefined) store.set('aiMaxRounds', settings.aiMaxRounds);
     if (settings.aiIncludeSource !== undefined) store.set('aiIncludeSource', settings.aiIncludeSource);
+    // agentV2 Stage 2 settings (additive; existing callers omit these).
+    if (settings.claudeMode === 'cli' || settings.claudeMode === 'api') store.set('claudeMode', settings.claudeMode);
+    if (settings.anthropicApiKey !== undefined) store.set('anthropicApiKey', settings.anthropicApiKey);
+    if (settings.claudeApiModel !== undefined) store.set('claudeApiModel', settings.claudeApiModel);
     return { success: true };
 });
 

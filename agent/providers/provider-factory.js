@@ -14,6 +14,8 @@ const { GeminiProvider } = require('./gemini-provider');
  * @param {object} [opts]
  * @param {'cli'|'api'} [opts.claudeMode='cli']
  * @param {string} [opts.geminiApiKey]
+ * @param {string} [opts.anthropicApiKey]
+ * @param {string} [opts.claudeApiModel]
  * @returns {import('./provider-interface').Provider}
  */
 function createProvider(kind, opts = {}) {
@@ -25,8 +27,13 @@ function createProvider(kind, opts = {}) {
 
     // kind === 'claude' (default)
     if (claudeMode === 'api') {
-        // Stage 2 replaces this branch with ClaudeApiProvider.
-        console.warn('[provider-factory] claudeMode="api" not available until Stage 2 — falling back to free CLI provider.');
+        if (opts.anthropicApiKey) {
+            // Lazy require: only load the Anthropic SDK when API mode is actually used.
+            const { ClaudeApiProvider } = require('./claude-api-provider');
+            return new ClaudeApiProvider(opts.anthropicApiKey, { model: opts.claudeApiModel });
+        }
+        // API mode requested but no key — fall back to the free CLI provider (no cost, no crash).
+        console.warn('[provider-factory] claudeMode="api" but no anthropicApiKey set — falling back to free CLI provider.');
         return new ClaudeCliProvider();
     }
     return new ClaudeCliProvider();
@@ -41,6 +48,8 @@ function createFromStore(store, kind) {
     return createProvider(kind, {
         claudeMode: store.get('claudeMode', 'cli'),
         geminiApiKey: store.get('geminiApiKey', ''),
+        anthropicApiKey: store.get('anthropicApiKey', ''),
+        claudeApiModel: store.get('claudeApiModel', ''),
     });
 }
 
