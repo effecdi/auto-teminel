@@ -1,0 +1,56 @@
+/* ui-next/agent-panel.css — Stage 3 agent panel. Scoped with .agentv2-* so it
+   cannot affect the classic app styling. */
+
+.agentv2-launcher {
+    position: fixed; right: 18px; bottom: 18px; z-index: 9998;
+    background: linear-gradient(135deg, #6d5efc, #8b7bff); color: #fff;
+    border: none; border-radius: 20px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+    cursor: pointer; box-shadow: 0 4px 14px rgba(109,94,252,0.4); font-family: Inter, sans-serif;
+}
+.agentv2-launcher:hover { filter: brightness(1.08); }
+
+.agentv2-panel {
+    position: fixed; top: 0; right: 0; height: 100vh; width: 420px; max-width: 92vw; z-index: 9999;
+    background: #1a1b26; color: #c0caf5; border-left: 1px solid #2a2e44;
+    display: flex; flex-direction: column; font-family: Inter, sans-serif;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.35); transition: transform 0.18s ease;
+}
+.agentv2-panel.agentv2-closed { transform: translateX(105%); pointer-events: none; }
+
+.agentv2-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2a2e44; }
+.agentv2-title { font-weight: 700; font-size: 14px; }
+.agentv2-backend { font-size: 11px; color: #7aa2f7; background: #222436; padding: 2px 8px; border-radius: 10px; }
+.agentv2-close { margin-left: auto; background: none; border: none; color: #565f89; font-size: 16px; cursor: pointer; }
+.agentv2-close:hover { color: #c0caf5; }
+
+.agentv2-log { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.5; }
+.agentv2-line { white-space: pre-wrap; word-break: break-word; }
+.agentv2-line.user { color: #7dcfff; }
+.agentv2-line.assistant { color: #c0caf5; }
+.agentv2-line.tool { color: #e0af68; font-family: 'Roboto Mono', monospace; font-size: 12px; }
+.agentv2-line.error { color: #f7768e; }
+.agentv2-line.status { color: #565f89; font-style: italic; text-align: center; }
+
+.agentv2-approval { border: 1px solid #7aa2f7; border-radius: 8px; padding: 10px; background: #1f2335; }
+.agentv2-approval.resolved { opacity: 0.6; }
+.agentv2-approval-title { font-weight: 600; color: #7aa2f7; margin-bottom: 6px; }
+.agentv2-approval-input { background: #16161e; padding: 6px 8px; border-radius: 6px; font-size: 11px; overflow-x: auto; margin: 0 0 8px; color: #a9b1d6; }
+.agentv2-approval-btns { display: flex; gap: 8px; }
+.agentv2-approve-yes, .agentv2-approve-no { border: none; border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.agentv2-approve-yes { background: #9ece6a; color: #1a1b26; }
+.agentv2-approve-no { background: #f7768e; color: #1a1b26; }
+.agentv2-approve-yes:disabled, .agentv2-approve-no:disabled { opacity: 0.5; cursor: default; }
+.agentv2-approval-done { font-size: 11px; color: #565f89; margin-left: 6px; }
+
+.agentv2-cwd-row { padding: 8px 14px 0; display: flex; align-items: center; gap: 8px; }
+.agentv2-cwd-label { font-size: 11px; color: #565f89; white-space: nowrap; }
+.agentv2-cwd { flex: 1; background: #16161e; border: 1px solid #2a2e44; color: #c0caf5; border-radius: 6px; padding: 5px 8px; font-size: 11px; font-family: 'Roboto Mono', monospace; }
+
+.agentv2-input-row { padding: 8px 14px 0; }
+.agentv2-input { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; background: #16161e; border: 1px solid #2a2e44; color: #c0caf5; border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: Inter, sans-serif; }
+
+.agentv2-btn-row { padding: 8px 14px 14px; display: flex; gap: 8px; }
+.agentv2-run, .agentv2-stop { flex: 1; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.agentv2-run { background: #6d5efc; color: #fff; }
+.agentv2-stop { background: #f7768e; color: #1a1b26; }
+.agentv2-hidden { display: none !important; }

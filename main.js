@@ -20,6 +20,7 @@ const { streamClaude } = require('./ai-clients');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
 const { autoUpdater } = require('electron-updater');
 const { initAgentV2Defaults } = require('./agent/settings-defaults');
+const { register: registerAgentV2 } = require('./agent/agent-ipc');
 
 // Prevent EPIPE crashes when stdout/stderr pipes are closed during shutdown
 process.stdout?.on?.('error', (err) => { if (err.code !== 'EPIPE') throw err; });
@@ -948,6 +949,8 @@ function createWindow() {
 app.whenReady().then(() => {
     // Stage 0 — agentV2 baseline: seed default settings if absent (no behavior change).
     try { initAgentV2Defaults(store); } catch (e) { console.error('[agentV2] initDefaults failed:', e); }
+    // Stage 3 — register agentv2.* IPC (agent loop, tools, approvals). UI stays behind agentV2Enabled (default off).
+    try { registerAgentV2({ ipcMain, getMainWindow: () => mainWindow, store }); } catch (e) { console.error('[agentV2] IPC register failed:', e); }
 
     // macOS에서 Cmd+C/V/X/A 등 기본 단축키가 textarea/input에서 동작하려면
     // Edit 메뉴가 반드시 있어야 함
