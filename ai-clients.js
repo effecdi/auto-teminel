@@ -20,8 +20,10 @@ function buildClaudePrompt(messages, options) {
 
     const parts = [`[시스템 프롬프트]\n${systemPrompt}\n`];
 
-    const recent = messages.length > 3 ? messages.slice(-3) : messages; // 4→3: 토큰 절약
-    if (messages.length > 3) {
+    // agentV2 Stage 1: opt-in full context (default keeps legacy 3-message truncation).
+    const fullContext = !!(options && options.fullContext);
+    const recent = (fullContext || messages.length <= 3) ? messages : messages.slice(-3); // 4→3: 토큰 절약
+    if (!fullContext && messages.length > 3) {
         parts.push('[... 이전 대화 생략 ...]\n');
     }
 
@@ -469,7 +471,9 @@ function streamGemini(apiKey, history, callbacks, options) {
             const cacheKey = `${apiKey}:${systemPrompt.length}:${!!projectPath}`;
             const model = getOrCreateGeminiModel(client, modelConfig, cacheKey);
 
-            const recent = history.length > 4 ? history.slice(-4) : history; // 6→4: 토큰 절약
+            // agentV2 Stage 1: opt-in full context (default keeps legacy 4-message truncation).
+            const fullContext = !!(options && options.fullContext);
+            const recent = (fullContext || history.length <= 4) ? history : history.slice(-4); // 6→4: 토큰 절약
             const geminiHistory = toGeminiHistory(recent);
 
             const lastMsg = geminiHistory.pop();
