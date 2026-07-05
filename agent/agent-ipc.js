@@ -18,6 +18,7 @@ const { runCliAgent } = require('./cli-agent-bridge');
 const { Conversation } = require('./conversation');
 const { McpManager } = require('../mcp/mcp-manager');
 const mcpConfig = require('../mcp/mcp-config');
+const { ImageRouter } = require('../imagegen/image-router');
 
 function buildRegistry() {
     return new ToolRegistry().registerAll([...fsTools, bashTool, verifyTool]);
@@ -44,6 +45,19 @@ function register({ ipcMain, getMainWindow, store }) {
     const mcp = new McpManager({ registry, store, emit: broadcastMcp });
     // Best-effort connect at startup (non-blocking).
     Promise.resolve().then(() => mcp.connectAll()).catch(e => console.error('[agentV2] MCP connectAll failed:', e));
+
+    // Stage 6 — image generation: router + a generate_image agent tool.
+    const imageRouter = new ImageRouter({ store, getMainWindow });
+    registry.register({
+        name: 'generate_image',
+        description: 'Generate an image from a text prompt and save it into the project. Backend (ChatGPT web / Gemini) follows settings.',
+        inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'What to draw' } }, required: ['prompt'] },
+        requiresApproval: true,
+        handler: async (input, ctx) => {
+            const r = await imageRouter.generate(input.prompt, { projectPath: ctx.projectPath });
+            return { path: r.path, backend: r.backend, mimeType: r.mimeType };
+        },
+    });
 
     // Scoped emitter that also cleans up on terminal events.
     const makeEmit = (runId) => (event, payload) => {
@@ -145,7 +159,16 @@ function register({ ipcMain, getMainWindow, store }) {
     ipcMain.handle('mcp.status', () => mcp.status());
     ipcMain.handle('mcp.testServer', async (e, cfg) => mcp.testServer(cfg || {}));
 
-    return { registry, mcp };
+    // ---- Stage 6: image generation ----
+    ipcMain.handle('imagegen.generate', async (e, { prompt, projectPath, backend }) => {
+        try { return { ok: true, ...(await imageRouter.generate(prompt, { projectPath, backend })) }; }
+        catch (err) { return { ok: false, error: err && err.message ? err.message : String(err) }; }
+    });
+    ipcMain.handle('imagegen.chatgptLogin', async () => imageRouter.chatgptLogin());
+    ipcMain.handle('imagegen.chatgptHide', () => imageRouter.chatgptHide());
+    ipcMain.handle('imagegen.chatgptStatus', async () => imageRouter.chatgptStatus());
+
+    return { registry, mcp, imageRouter };
 }
 
 module.exports = { register, buildRegistry };

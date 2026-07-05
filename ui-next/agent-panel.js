@@ -8,7 +8,7 @@
     let ipcRenderer;
     try { ipcRenderer = require('electron').ipcRenderer; } catch (_) { return; }
 
-    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl, mcpEl, settingsEl;
+    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl, mcpEl, settingsEl, imageEl;
     let currentRunId = null;
     let currentBubble = null;           // streaming assistant text bubble
     const history = [];                 // accumulated {role, content} for this panel session
@@ -37,6 +37,10 @@
         setBtn.title = '설정';
         setBtn.addEventListener('click', toggleSettings);
         header.appendChild(setBtn);
+        const imgBtn = el('button', 'agentv2-mcp-btn', '🎨');
+        imgBtn.title = '이미지 생성';
+        imgBtn.addEventListener('click', toggleImage);
+        header.appendChild(imgBtn);
         const mcpBtn = el('button', 'agentv2-mcp-btn', '🔌 MCP');
         mcpBtn.title = 'MCP 서버 관리';
         mcpBtn.addEventListener('click', toggleMcp);
@@ -48,6 +52,8 @@
 
         settingsEl = el('div', 'agentv2-settings agentv2-hidden');
         panelEl.appendChild(settingsEl);
+        imageEl = el('div', 'agentv2-mcp agentv2-hidden');
+        panelEl.appendChild(imageEl);
         mcpEl = el('div', 'agentv2-mcp agentv2-hidden');
         panelEl.appendChild(mcpEl);
 
@@ -98,7 +104,7 @@
     function toggleSettings() {
         const show = settingsEl.classList.contains('agentv2-hidden');
         settingsEl.classList.toggle('agentv2-hidden', !show);
-        mcpEl.classList.add('agentv2-hidden');
+        mcpEl.classList.add('agentv2-hidden'); if (imageEl) imageEl.classList.add('agentv2-hidden');
         if (show) renderSettings();
     }
 
@@ -132,6 +138,20 @@
         modelRow.appendChild(modelIn);
         settingsEl.appendChild(modelRow);
 
+        // Image backend
+        const imgRow = el('div', 'agentv2-set-row');
+        imgRow.appendChild(el('label', 'agentv2-set-label', '이미지 생성 백엔드'));
+        const imgSel = el('select', 'agentv2-mcp-in');
+        [['gemini', 'Gemini (API)'], ['chatgpt-web', 'ChatGPT 웹 (무료·실험적)']].forEach(([v, t]) => { const o = el('option', '', t); o.value = v; if (s.imageBackend === v) o.selected = true; imgSel.appendChild(o); });
+        imgRow.appendChild(imgSel);
+        settingsEl.appendChild(imgRow);
+
+        const gimRow = el('div', 'agentv2-set-row');
+        gimRow.appendChild(el('label', 'agentv2-set-label', 'Gemini 이미지 모델 (비우면 기본값)'));
+        const gimIn = el('input', 'agentv2-mcp-in'); gimIn.value = s.geminiImageModel || ''; gimIn.placeholder = 'gemini-2.5-flash-image-preview';
+        gimRow.appendChild(gimIn);
+        settingsEl.appendChild(gimRow);
+
         // Auto-approve
         const autoRow = el('div', 'agentv2-set-check');
         const autoBox = el('input'); autoBox.type = 'checkbox'; autoBox.checked = auto; autoBox.id = 'agentv2-auto';
@@ -141,7 +161,7 @@
 
         const saveB = el('button', 'agentv2-mcp-add', '저장');
         saveB.addEventListener('click', async () => {
-            const patch = { claudeMode: modeSel.value, claudeApiModel: modelIn.value.trim() };
+            const patch = { claudeMode: modeSel.value, claudeApiModel: modelIn.value.trim(), imageBackend: imgSel.value, geminiImageModel: gimIn.value.trim() };
             if (keyIn.value.trim()) patch.anthropicApiKey = keyIn.value.trim();
             try {
                 await ipcRenderer.invoke('ai.setSettings', patch);
@@ -154,10 +174,56 @@
         settingsEl.appendChild(saveB);
     }
 
+    function toggleImage() {
+        const show = imageEl.classList.contains('agentv2-hidden');
+        imageEl.classList.toggle('agentv2-hidden', !show);
+        settingsEl.classList.add('agentv2-hidden'); mcpEl.classList.add('agentv2-hidden');
+        if (show) renderImage();
+    }
+
+    async function renderImage() {
+        imageEl.innerHTML = '';
+        imageEl.appendChild(el('div', 'agentv2-mcp-title', '이미지 생성'));
+        let s = {};
+        try { s = await ipcRenderer.invoke('ai.getSettings'); } catch (_) {}
+        const info = el('div', 'agentv2-mcp-empty', '백엔드: ' + (s.imageBackend === 'chatgpt-web' ? 'ChatGPT 웹(무료·실험적)' : 'Gemini(API)') + ' — ⚙️설정에서 변경');
+        imageEl.appendChild(info);
+
+        // ChatGPT login controls
+        const loginRow = el('div', 'agentv2-mcp-row');
+        const loginBtn = el('button', 'agentv2-mcp-toggle', 'ChatGPT 로그인 창');
+        loginBtn.addEventListener('click', () => ipcRenderer.invoke('imagegen.chatgptLogin'));
+        const hideBtn = el('button', 'agentv2-mcp-toggle', '창 닫기');
+        hideBtn.addEventListener('click', () => ipcRenderer.invoke('imagegen.chatgptHide'));
+        loginRow.appendChild(loginBtn); loginRow.appendChild(hideBtn);
+        imageEl.appendChild(loginRow);
+
+        const promptIn = el('textarea', 'agentv2-mcp-in'); promptIn.placeholder = '생성할 이미지 설명...'; promptIn.rows = 2;
+        imageEl.appendChild(promptIn);
+        const genBtn = el('button', 'agentv2-mcp-add', '🎨 생성');
+        const result = el('div', 'agentv2-img-result');
+        genBtn.addEventListener('click', async () => {
+            const prompt = promptIn.value.trim();
+            if (!prompt) return;
+            result.textContent = '생성 중...';
+            const res = await ipcRenderer.invoke('imagegen.generate', { prompt, projectPath: (cwdEl.value || '').trim() || undefined });
+            if (res && res.ok) {
+                result.textContent = '';
+                result.appendChild(el('div', 'agentv2-mcp-empty', '✅ ' + res.backend + ' → ' + res.path));
+                const img = document.createElement('img'); img.className = 'agentv2-img-preview'; img.src = 'file://' + res.path;
+                result.appendChild(img);
+            } else {
+                result.textContent = '❌ ' + ((res && res.error) || '실패');
+            }
+        });
+        imageEl.appendChild(genBtn);
+        imageEl.appendChild(result);
+    }
+
     function toggleMcp() {
         const show = mcpEl.classList.contains('agentv2-hidden');
         mcpEl.classList.toggle('agentv2-hidden', !show);
-        settingsEl.classList.add('agentv2-hidden');
+        settingsEl.classList.add('agentv2-hidden'); imageEl.classList.add('agentv2-hidden');
         if (show) renderMcp();
     }
 

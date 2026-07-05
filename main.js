@@ -3338,6 +3338,9 @@ ipcMain.handle('ai.getSettings', () => {
         // Don't leak the raw API key to the renderer — only report whether one is set.
         hasAnthropicApiKey: !!store.get('anthropicApiKey', ''),
         claudeApiModel: store.get('claudeApiModel', ''),
+        // agentV2 Stage 6: image generation backend + optional Gemini image model override.
+        imageBackend: store.get('imageBackend', 'gemini'),
+        geminiImageModel: store.get('geminiImageModel', ''),
     };
 });
 
@@ -3351,6 +3354,8 @@ ipcMain.handle('ai.setSettings', (event, settings) => {
     if (settings.claudeMode === 'cli' || settings.claudeMode === 'api') store.set('claudeMode', settings.claudeMode);
     if (settings.anthropicApiKey !== undefined) store.set('anthropicApiKey', settings.anthropicApiKey);
     if (settings.claudeApiModel !== undefined) store.set('claudeApiModel', settings.claudeApiModel);
+    if (settings.imageBackend === 'gemini' || settings.imageBackend === 'chatgpt-web') store.set('imageBackend', settings.imageBackend);
+    if (settings.geminiImageModel !== undefined) store.set('geminiImageModel', settings.geminiImageModel);
     return { success: true };
 });
 
