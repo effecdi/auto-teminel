@@ -3352,6 +3352,14 @@ ipcMain.handle('ai.getSettings', () => {
     };
 });
 
+// One-click app relaunch — loads new main-process code without the manual
+// Cmd+Q + relaunch dance. (First update onto this code still needs one manual
+// restart; after that this button handles it.)
+ipcMain.handle('app.relaunch', () => {
+    try { _forceClose = true; app.relaunch(); app.exit(0); } catch (e) { console.error('[relaunch] failed:', e); }
+    return { relaunching: true };
+});
+
 ipcMain.handle('ai.setSettings', (event, settings) => {
     if (settings.geminiApiKey !== undefined) store.set('geminiApiKey', settings.geminiApiKey);
     if (settings.aiDefaultMode !== undefined) store.set('aiDefaultMode', settings.aiDefaultMode);

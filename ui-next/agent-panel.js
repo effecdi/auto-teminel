@@ -33,6 +33,10 @@
         header.appendChild(el('span', 'agentv2-title', '⚡ AI 에이전트'));
         backendEl = el('span', 'agentv2-backend', '');
         header.appendChild(backendEl);
+        const reBtn = el('button', 'agentv2-mcp-btn', '🔄 재시작');
+        reBtn.title = '앱을 원클릭 재시작 (새 코드 + UTF-8 환경 적용)';
+        reBtn.addEventListener('click', () => { ipcRenderer.invoke('app.relaunch'); });
+        header.appendChild(reBtn);
         const setBtn = el('button', 'agentv2-mcp-btn', '⚙️');
         setBtn.title = '설정';
         setBtn.addEventListener('click', toggleSettings);
