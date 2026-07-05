@@ -990,6 +990,12 @@ app.whenReady().then(() => {
                 { role: 'zoomOut' },
                 { role: 'resetZoom' }
             ]
+        },
+        {
+            label: 'AI',
+            submenu: [
+                { label: 'AI 워크스페이스 열기', accelerator: 'CmdOrCtrl+Shift+A', click: () => openAgentWorkspace() }
+            ]
         }
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -3359,6 +3365,25 @@ ipcMain.handle('app.relaunch', () => {
     try { _forceClose = true; app.relaunch(); app.exit(0); } catch (e) { console.error('[relaunch] failed:', e); }
     return { relaunching: true };
 });
+
+// New modern AI agent workspace — a SEPARATE window (does not touch the terminal
+// app / its live claude sessions). Reuses the agentv2.*/mcp.*/imagegen.* engine.
+let agentWorkspaceWindow = null;
+function openAgentWorkspace() {
+    if (agentWorkspaceWindow && !agentWorkspaceWindow.isDestroyed()) {
+        agentWorkspaceWindow.focus();
+        return agentWorkspaceWindow;
+    }
+    agentWorkspaceWindow = new BrowserWindow({
+        width: 1400, height: 900, minWidth: 1000, minHeight: 640,
+        titleBarStyle: 'hiddenInset', backgroundColor: '#0b0d12',
+        webPreferences: { nodeIntegration: true, contextIsolation: false }
+    });
+    agentWorkspaceWindow.loadFile('app-next/index.html');
+    agentWorkspaceWindow.on('closed', () => { agentWorkspaceWindow = null; });
+    return agentWorkspaceWindow;
+}
+ipcMain.handle('appNext.open', () => { openAgentWorkspace(); return { opened: true }; });
 
 ipcMain.handle('ai.setSettings', (event, settings) => {
     if (settings.geminiApiKey !== undefined) store.set('geminiApiKey', settings.geminiApiKey);

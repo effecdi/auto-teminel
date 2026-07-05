@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Workspace</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Top bar -->
+        <header class="topbar">
+            <div class="topbar-title">⚡ AI Workspace</div>
+            <div class="topbar-spacer"></div>
+            <span id="backendChip" class="chip">CLI</span>
+            <button class="icon-btn" id="mcpBtn" title="MCP 서버">🔌</button>
+            <button class="icon-btn" id="imgBtn" title="이미지 생성">🎨</button>
+            <button class="icon-btn" id="setBtn" title="설정">⚙️</button>
+        </header>
+
+        <div class="body">
+            <!-- Sidebar: sessions -->
+            <aside class="sidebar">
+                <button class="new-chat" id="newChatBtn">＋ 새 대화</button>
+                <div class="session-list" id="sessionList"></div>
+                <div class="sidebar-foot">
+                    <label class="foot-label">작업 폴더</label>
+                    <input class="cwd-input" id="cwdInput" placeholder="/path/to/project (선택)">
+                </div>
+            </aside>
+
+            <!-- Main conversation -->
+            <main class="conversation">
+                <div class="messages" id="messages">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-logo">⚡</div>
+                        <div class="empty-title">무엇을 도와줄까?</div>
+                        <div class="empty-sub">코드 읽기·수정·실행, 검증, 이미지 생성까지 — 에이전트가 도구를 써서 처리함</div>
+                    </div>
+                </div>
+                <div class="composer">
+                    <textarea id="input" class="composer-input" placeholder="메시지 입력 (⌘/Ctrl+Enter로 실행)" rows="1"></textarea>
+                    <button id="runBtn" class="run-btn">실행</button>
+                    <button id="stopBtn" class="stop-btn hidden">중지</button>
+                </div>
+            </main>
+
+            <!-- Right context rail -->
+            <aside class="context-rail" id="contextRail">
+                <div class="rail-title">실행 컨텍스트</div>
+                <div class="rail-section">
+                    <div class="rail-head">도구 <span id="toolCount" class="rail-count">0</span></div>
+                    <div id="toolList" class="rail-list"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Overlay panels -->
+    <div class="overlay hidden" id="overlay">
+        <div class="modal" id="modal"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

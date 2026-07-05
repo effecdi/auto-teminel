@@ -30,18 +30,18 @@ function register({ ipcMain, getMainWindow, store }) {
     const registry = buildRegistry();
     const runs = new Map(); // runId -> { controller, approvals }
 
-    const sendToRenderer = (runId, event, payload) => {
-        const win = getMainWindow();
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('agentv2.event', { runId, event, payload });
+    // Broadcast to ALL windows (old terminal panel + new agent workspace window).
+    // Each renderer filters by runId, so multiple windows can coexist.
+    const { BrowserWindow } = require('electron');
+    const broadcast = (channel, msg) => {
+        for (const w of BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed()) { try { w.webContents.send(channel, msg); } catch (_) {} }
         }
     };
+    const sendToRenderer = (runId, event, payload) => broadcast('agentv2.event', { runId, event, payload });
 
     // Stage 4 — MCP: connect enabled servers, register their tools into `registry`.
-    const broadcastMcp = (event, payload) => {
-        const win = getMainWindow();
-        if (win && !win.isDestroyed()) win.webContents.send('agentv2.mcp', { event, payload });
-    };
+    const broadcastMcp = (event, payload) => broadcast('agentv2.mcp', { event, payload });
     const mcp = new McpManager({ registry, store, emit: broadcastMcp });
     // Best-effort connect at startup (non-blocking).
     Promise.resolve().then(() => mcp.connectAll()).catch(e => console.error('[agentV2] MCP connectAll failed:', e));
