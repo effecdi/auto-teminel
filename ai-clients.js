@@ -59,6 +59,9 @@ function streamClaude(history, callbacks, options) {
     const pathSet = new Set((cleanEnv.PATH || '').split(':'));
     for (const p of extraPaths) pathSet.add(p);
     cleanEnv.PATH = [...pathSet].join(':');
+    // Force UTF-8 locale (GUI apps inherit no LANG → Mac Roman mojibake on multibyte).
+    const _utf8 = /UTF-?8$/i.test(cleanEnv.LANG || '') ? cleanEnv.LANG : 'en_US.UTF-8';
+    cleanEnv.LANG = _utf8; cleanEnv.LC_ALL = _utf8; cleanEnv.LC_CTYPE = _utf8;
 
     // Set cwd to project path so Claude CLI has actual file access
     const cwd = (options && options.projectPath) || process.cwd();

@@ -1288,6 +1288,11 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
         cleanEnv.BROWSER_CTL_URL = `http://127.0.0.1:${BROWSER_CTL_PORT}`;
         cleanEnv.BROWSER_SCREENSHOT_PATH = BROWSER_SCREENSHOT_PATH;
 
+        // FIX (encoding/mojibake): GUI apps launched outside a shell inherit no
+        // LANG/LC_*, so the child (claude CLI) falls back to macOS legacy Mac Roman
+        // and corrupts Korean/multibyte (esp. on paste). Force a UTF-8 locale.
+        const utf8Locale = /UTF-?8$/i.test(cleanEnv.LANG || '') ? cleanEnv.LANG : 'en_US.UTF-8';
+
         const proc = pty.spawn(shell, shellArgs, {
             name: 'xterm-256color',
             cols: cols || 120,
@@ -1296,7 +1301,10 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             env: {
                 ...cleanEnv,
                 TERM: 'xterm-256color',
-                COLORTERM: 'truecolor'
+                COLORTERM: 'truecolor',
+                LANG: utf8Locale,
+                LC_ALL: utf8Locale,
+                LC_CTYPE: utf8Locale
             }
         });
 
