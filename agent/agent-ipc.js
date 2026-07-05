@@ -60,6 +60,7 @@ function register({ ipcMain, getMainWindow, store }) {
         enabled: !!store.get('agentV2Enabled', false),
         claudeMode: store.get('claudeMode', 'cli'),
         hasAnthropicApiKey: !!store.get('anthropicApiKey', ''),
+        autoApprove: !!store.get('agentV2AutoApprove', false),
     }));
 
     ipcMain.handle('agentv2.setEnabled', (e, on) => { store.set('agentV2Enabled', !!on); return { enabled: !!on }; });

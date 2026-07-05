@@ -8,7 +8,7 @@
     let ipcRenderer;
     try { ipcRenderer = require('electron').ipcRenderer; } catch (_) { return; }
 
-    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl, mcpEl;
+    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl, mcpEl, settingsEl;
     let currentRunId = null;
     let currentBubble = null;           // streaming assistant text bubble
     const history = [];                 // accumulated {role, content} for this panel session
@@ -33,6 +33,10 @@
         header.appendChild(el('span', 'agentv2-title', '⚡ AI 에이전트'));
         backendEl = el('span', 'agentv2-backend', '');
         header.appendChild(backendEl);
+        const setBtn = el('button', 'agentv2-mcp-btn', '⚙️');
+        setBtn.title = '설정';
+        setBtn.addEventListener('click', toggleSettings);
+        header.appendChild(setBtn);
         const mcpBtn = el('button', 'agentv2-mcp-btn', '🔌 MCP');
         mcpBtn.title = 'MCP 서버 관리';
         mcpBtn.addEventListener('click', toggleMcp);
@@ -42,6 +46,8 @@
         header.appendChild(closeBtn);
         panelEl.appendChild(header);
 
+        settingsEl = el('div', 'agentv2-settings agentv2-hidden');
+        panelEl.appendChild(settingsEl);
         mcpEl = el('div', 'agentv2-mcp agentv2-hidden');
         panelEl.appendChild(mcpEl);
 
@@ -89,9 +95,69 @@
         } catch (_) { backendEl.textContent = ''; }
     }
 
+    function toggleSettings() {
+        const show = settingsEl.classList.contains('agentv2-hidden');
+        settingsEl.classList.toggle('agentv2-hidden', !show);
+        mcpEl.classList.add('agentv2-hidden');
+        if (show) renderSettings();
+    }
+
+    async function renderSettings() {
+        settingsEl.innerHTML = '';
+        settingsEl.appendChild(el('div', 'agentv2-mcp-title', '설정'));
+        let s = {};
+        try { s = await ipcRenderer.invoke('ai.getSettings'); } catch (_) {}
+        let auto = false;
+        try { const en = await ipcRenderer.invoke('agentv2.isEnabled'); auto = !!en.autoApprove; } catch (_) {}
+
+        // Claude backend mode
+        const modeRow = el('div', 'agentv2-set-row');
+        modeRow.appendChild(el('label', 'agentv2-set-label', 'Claude 백엔드'));
+        const modeSel = el('select', 'agentv2-mcp-in');
+        [['cli', 'CLI (무료 · 구독)'], ['api', 'API (유료 · 토큰당)']].forEach(([v, t]) => { const o = el('option', '', t); o.value = v; if (s.claudeMode === v) o.selected = true; modeSel.appendChild(o); });
+        modeRow.appendChild(modeSel);
+        settingsEl.appendChild(modeRow);
+
+        // Anthropic API key
+        const keyRow = el('div', 'agentv2-set-row');
+        keyRow.appendChild(el('label', 'agentv2-set-label', 'Anthropic API 키' + (s.hasAnthropicApiKey ? ' (설정됨)' : '')));
+        const keyIn = el('input', 'agentv2-mcp-in'); keyIn.type = 'password'; keyIn.placeholder = s.hasAnthropicApiKey ? '변경하려면 새 키 입력' : 'sk-ant-...';
+        keyRow.appendChild(keyIn);
+        settingsEl.appendChild(keyRow);
+
+        // API model
+        const modelRow = el('div', 'agentv2-set-row');
+        modelRow.appendChild(el('label', 'agentv2-set-label', 'API 모델 (비우면 opus-4-8)'));
+        const modelIn = el('input', 'agentv2-mcp-in'); modelIn.value = s.claudeApiModel || ''; modelIn.placeholder = 'claude-opus-4-8';
+        modelRow.appendChild(modelIn);
+        settingsEl.appendChild(modelRow);
+
+        // Auto-approve
+        const autoRow = el('div', 'agentv2-set-check');
+        const autoBox = el('input'); autoBox.type = 'checkbox'; autoBox.checked = auto; autoBox.id = 'agentv2-auto';
+        const autoLbl = el('label', 'agentv2-set-label', ' 도구 자동 승인 (위험: 확인 없이 실행)'); autoLbl.htmlFor = 'agentv2-auto';
+        autoRow.appendChild(autoBox); autoRow.appendChild(autoLbl);
+        settingsEl.appendChild(autoRow);
+
+        const saveB = el('button', 'agentv2-mcp-add', '저장');
+        saveB.addEventListener('click', async () => {
+            const patch = { claudeMode: modeSel.value, claudeApiModel: modelIn.value.trim() };
+            if (keyIn.value.trim()) patch.anthropicApiKey = keyIn.value.trim();
+            try {
+                await ipcRenderer.invoke('ai.setSettings', patch);
+                await ipcRenderer.invoke('agentv2.setAutoApprove', autoBox.checked);
+                addLine('status', '설정 저장됨');
+                refreshBackend();
+                toggleSettings();
+            } catch (e) { addLine('error', '설정 저장 실패: ' + e.message); }
+        });
+        settingsEl.appendChild(saveB);
+    }
+
     function toggleMcp() {
         const show = mcpEl.classList.contains('agentv2-hidden');
         mcpEl.classList.toggle('agentv2-hidden', !show);
+        settingsEl.classList.add('agentv2-hidden');
         if (show) renderMcp();
     }
 
@@ -222,10 +288,32 @@
         }
     }
 
+    function renderApprovalBody(box, data) {
+        const t = data.toolName, i = data.input || {};
+        if (t === 'run_bash') {
+            box.appendChild(el('div', 'agentv2-approval-cmd', '$ ' + (i.command || '')));
+            return;
+        }
+        if (t === 'write_file') {
+            box.appendChild(el('div', 'agentv2-approval-path', '✏️ 새 파일: ' + (i.path || '')));
+            box.appendChild(el('pre', 'agentv2-approval-input', (i.content || '').slice(0, 1500)));
+            return;
+        }
+        if (t === 'edit_file') {
+            box.appendChild(el('div', 'agentv2-approval-path', '✏️ 수정: ' + (i.path || '')));
+            const diff = el('pre', 'agentv2-approval-input');
+            diff.appendChild(el('div', 'agentv2-diff-old', '- ' + (i.old_string || '').slice(0, 700)));
+            diff.appendChild(el('div', 'agentv2-diff-new', '+ ' + (i.new_string || '').slice(0, 700)));
+            box.appendChild(diff);
+            return;
+        }
+        box.appendChild(el('pre', 'agentv2-approval-input', JSON.stringify(i, null, 2).slice(0, 1000)));
+    }
+
     function renderApproval(data) {
         const box = el('div', 'agentv2-approval');
         box.appendChild(el('div', 'agentv2-approval-title', '승인 필요: ' + data.toolName));
-        box.appendChild(el('pre', 'agentv2-approval-input', JSON.stringify(data.input, null, 2).slice(0, 800)));
+        renderApprovalBody(box, data);
         const row = el('div', 'agentv2-approval-btns');
         const yes = el('button', 'agentv2-approve-yes', '승인');
         const no = el('button', 'agentv2-approve-no', '거부');
