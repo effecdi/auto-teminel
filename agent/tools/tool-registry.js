@@ -35,6 +35,18 @@ class ToolRegistry {
     get(name) { return this.tools.get(name) || null; }
     list() { return [...this.tools.values()]; }
 
+    /** Remove a tool by name. Returns true if it existed. */
+    unregister(name) { return this.tools.delete(name); }
+
+    /** Remove every tool whose name starts with prefix (e.g. 'mcp__'). Returns count removed. */
+    unregisterByPrefix(prefix) {
+        let n = 0;
+        for (const name of [...this.tools.keys()]) {
+            if (name.startsWith(prefix)) { this.tools.delete(name); n++; }
+        }
+        return n;
+    }
+
     /** Anthropic tool_use schema shape (name/description/input_schema). */
     toAnthropicTools() {
         return this.list().map(t => ({

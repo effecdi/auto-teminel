@@ -8,7 +8,7 @@
     let ipcRenderer;
     try { ipcRenderer = require('electron').ipcRenderer; } catch (_) { return; }
 
-    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl;
+    let panelEl, logEl, inputEl, cwdEl, runBtn, stopBtn, backendEl, mcpEl;
     let currentRunId = null;
     let currentBubble = null;           // streaming assistant text bubble
     const history = [];                 // accumulated {role, content} for this panel session
@@ -33,10 +33,17 @@
         header.appendChild(el('span', 'agentv2-title', '⚡ AI 에이전트'));
         backendEl = el('span', 'agentv2-backend', '');
         header.appendChild(backendEl);
+        const mcpBtn = el('button', 'agentv2-mcp-btn', '🔌 MCP');
+        mcpBtn.title = 'MCP 서버 관리';
+        mcpBtn.addEventListener('click', toggleMcp);
+        header.appendChild(mcpBtn);
         const closeBtn = el('button', 'agentv2-close', '✕');
         closeBtn.addEventListener('click', () => togglePanel(false));
         header.appendChild(closeBtn);
         panelEl.appendChild(header);
+
+        mcpEl = el('div', 'agentv2-mcp agentv2-hidden');
+        panelEl.appendChild(mcpEl);
 
         logEl = el('div', 'agentv2-log');
         panelEl.appendChild(logEl);
@@ -80,6 +87,60 @@
             const mode = s.claudeMode === 'api' && s.hasAnthropicApiKey ? 'API (유료)' : 'CLI (무료)';
             backendEl.textContent = mode;
         } catch (_) { backendEl.textContent = ''; }
+    }
+
+    function toggleMcp() {
+        const show = mcpEl.classList.contains('agentv2-hidden');
+        mcpEl.classList.toggle('agentv2-hidden', !show);
+        if (show) renderMcp();
+    }
+
+    async function renderMcp() {
+        mcpEl.innerHTML = '';
+        mcpEl.appendChild(el('div', 'agentv2-mcp-title', 'MCP 서버'));
+        let servers = [];
+        try { servers = await ipcRenderer.invoke('mcp.listServers'); } catch (_) {}
+        let status = [];
+        try { status = await ipcRenderer.invoke('mcp.status'); } catch (_) {}
+        const statusById = {}; status.forEach(s => { statusById[s.id] = s; });
+
+        if (!servers.length) mcpEl.appendChild(el('div', 'agentv2-mcp-empty', '등록된 서버 없음'));
+        for (const s of servers) {
+            const row = el('div', 'agentv2-mcp-row');
+            const st = statusById[s.id];
+            const dot = el('span', 'agentv2-mcp-dot ' + (st ? 'on' : 'off'), st ? '●' : '○');
+            row.appendChild(dot);
+            row.appendChild(el('span', 'agentv2-mcp-name', s.name + (st ? ` (${st.toolCount} 도구)` : '')));
+            const en = el('button', 'agentv2-mcp-toggle', s.enabled === false ? '켜기' : '끄기');
+            en.addEventListener('click', async () => { await ipcRenderer.invoke('mcp.setEnabled', { id: s.id, enabled: s.enabled === false }); renderMcp(); });
+            const rm = el('button', 'agentv2-mcp-rm', '삭제');
+            rm.addEventListener('click', async () => { await ipcRenderer.invoke('mcp.removeServer', s.id); renderMcp(); });
+            row.appendChild(en); row.appendChild(rm);
+            mcpEl.appendChild(row);
+        }
+
+        // Add form
+        const form = el('div', 'agentv2-mcp-form');
+        const nameI = el('input', 'agentv2-mcp-in'); nameI.placeholder = '이름';
+        const typeS = el('select', 'agentv2-mcp-in');
+        ['stdio', 'sse', 'http'].forEach(t => { const o = el('option', '', t); o.value = t; typeS.appendChild(o); });
+        const cmdI = el('input', 'agentv2-mcp-in'); cmdI.placeholder = 'stdio: command (예: npx) / sse·http: url';
+        const argI = el('input', 'agentv2-mcp-in'); argI.placeholder = 'args (공백 구분, stdio만)';
+        const addB = el('button', 'agentv2-mcp-add', '＋ 서버 추가');
+        addB.addEventListener('click', async () => {
+            const type = typeS.value;
+            const cfg = { name: nameI.value.trim(), type };
+            if (type === 'stdio') { cfg.command = cmdI.value.trim(); cfg.args = argI.value.trim() ? argI.value.trim().split(/\s+/) : []; }
+            else { cfg.url = cmdI.value.trim(); }
+            if (!cfg.name || (type === 'stdio' ? !cfg.command : !cfg.url)) { addLine('error', 'MCP: 이름과 command/url 필요'); return; }
+            const res = await ipcRenderer.invoke('mcp.addServer', cfg);
+            const r = (res.results || []).find(x => x.name === cfg.name || x.id === (res.entry && res.entry.id));
+            addLine('status', 'MCP 추가: ' + cfg.name + (r ? (r.ok ? ` ✅ ${r.toolCount}도구` : ` ❌ ${r.error}`) : ''));
+            nameI.value = cmdI.value = argI.value = '';
+            renderMcp();
+        });
+        form.appendChild(nameI); form.appendChild(typeS); form.appendChild(cmdI); form.appendChild(argI); form.appendChild(addB);
+        mcpEl.appendChild(form);
     }
 
     function addLine(cls, text) { const n = el('div', 'agentv2-line ' + cls, text); logEl.appendChild(n); logEl.scrollTop = logEl.scrollHeight; return n; }

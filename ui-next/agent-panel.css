@@ -42,6 +42,20 @@
 .agentv2-approve-yes:disabled, .agentv2-approve-no:disabled { opacity: 0.5; cursor: default; }
 .agentv2-approval-done { font-size: 11px; color: #565f89; margin-left: 6px; }
 
+.agentv2-mcp-btn { background: #222436; border: 1px solid #2a2e44; color: #7aa2f7; font-size: 11px; border-radius: 10px; padding: 2px 8px; cursor: pointer; }
+.agentv2-mcp-btn:hover { background: #2a2e44; }
+.agentv2-mcp { border-bottom: 1px solid #2a2e44; padding: 10px 14px; background: #1f2335; max-height: 40vh; overflow-y: auto; }
+.agentv2-mcp-title { font-weight: 600; font-size: 12px; color: #7aa2f7; margin-bottom: 8px; }
+.agentv2-mcp-empty { font-size: 12px; color: #565f89; margin-bottom: 8px; }
+.agentv2-mcp-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; }
+.agentv2-mcp-dot.on { color: #9ece6a; } .agentv2-mcp-dot.off { color: #565f89; }
+.agentv2-mcp-name { flex: 1; color: #c0caf5; }
+.agentv2-mcp-toggle, .agentv2-mcp-rm { background: #2a2e44; border: none; color: #a9b1d6; font-size: 11px; border-radius: 5px; padding: 3px 8px; cursor: pointer; }
+.agentv2-mcp-rm { color: #f7768e; }
+.agentv2-mcp-form { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2e44; }
+.agentv2-mcp-in { background: #16161e; border: 1px solid #2a2e44; color: #c0caf5; border-radius: 5px; padding: 5px 7px; font-size: 11px; }
+.agentv2-mcp-add { background: #6d5efc; border: none; color: #fff; font-size: 12px; border-radius: 6px; padding: 6px; cursor: pointer; font-weight: 600; }
+
 .agentv2-cwd-row { padding: 8px 14px 0; display: flex; align-items: center; gap: 8px; }
 .agentv2-cwd-label { font-size: 11px; color: #565f89; white-space: nowrap; }
 .agentv2-cwd { flex: 1; background: #16161e; border: 1px solid #2a2e44; color: #c0caf5; border-radius: 6px; padding: 5px 8px; font-size: 11px; font-family: 'Roboto Mono', monospace; }

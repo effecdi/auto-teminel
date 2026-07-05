@@ -16,6 +16,8 @@ const { ApprovalBroker } = require('./approvals');
 const { Orchestrator } = require('./orchestrator');
 const { runCliAgent } = require('./cli-agent-bridge');
 const { Conversation } = require('./conversation');
+const { McpManager } = require('../mcp/mcp-manager');
+const mcpConfig = require('../mcp/mcp-config');
 
 function buildRegistry() {
     return new ToolRegistry().registerAll([...fsTools, bashTool, verifyTool]);
@@ -33,6 +35,15 @@ function register({ ipcMain, getMainWindow, store }) {
             win.webContents.send('agentv2.event', { runId, event, payload });
         }
     };
+
+    // Stage 4 — MCP: connect enabled servers, register their tools into `registry`.
+    const broadcastMcp = (event, payload) => {
+        const win = getMainWindow();
+        if (win && !win.isDestroyed()) win.webContents.send('agentv2.mcp', { event, payload });
+    };
+    const mcp = new McpManager({ registry, store, emit: broadcastMcp });
+    // Best-effort connect at startup (non-blocking).
+    Promise.resolve().then(() => mcp.connectAll()).catch(e => console.error('[agentV2] MCP connectAll failed:', e));
 
     // Scoped emitter that also cleans up on terminal events.
     const makeEmit = (runId) => (event, payload) => {
@@ -75,10 +86,17 @@ function register({ ipcMain, getMainWindow, store }) {
         (async () => {
             try {
                 if (claudeMode === 'api' && anthropicApiKey) {
+                    // MCP tools are already registered into `registry` by the manager.
                     const orch = new Orchestrator({ registry, approvals, emit, apiKey: anthropicApiKey });
                     await orch.run({ ...task, model: store.get('claudeApiModel', '') || undefined });
                 } else {
-                    runCliAgent(task, emit);
+                    // CLI path: hand the enabled MCP servers to the Claude CLI via --mcp-config.
+                    let mcpConfigFile = null, mcpServerNames = [];
+                    try {
+                        mcpConfigFile = mcpConfig.writeCliConfigFile(store);
+                        mcpServerNames = mcpConfig.listEnabled(store).map(s => s.name);
+                    } catch (_) {}
+                    runCliAgent({ ...task, mcpConfigFile, mcpServerNames }, emit);
                 }
             } catch (err) {
                 emit('error', { message: err && err.message ? err.message : String(err) });
@@ -105,7 +123,28 @@ function register({ ipcMain, getMainWindow, store }) {
     ipcMain.handle('agentv2.setAutoApprove', (e, on) => { store.set('agentV2AutoApprove', !!on); return { autoApprove: !!on }; });
     ipcMain.handle('agentv2.listTools', () => registry.list().map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval })));
 
-    return { registry };
+    // ---- Stage 4: MCP server management ----
+    ipcMain.handle('mcp.listServers', () => mcpConfig.list(store));
+    ipcMain.handle('mcp.addServer', async (e, cfg) => {
+        const entry = mcpConfig.add(store, cfg || {});
+        const results = await mcp.connectAll(); // reconnect so new tools register
+        return { entry, results };
+    });
+    ipcMain.handle('mcp.removeServer', async (e, id) => {
+        mcpConfig.remove(store, id);
+        const results = await mcp.connectAll();
+        return { servers: mcpConfig.list(store), results };
+    });
+    ipcMain.handle('mcp.setEnabled', async (e, { id, enabled }) => {
+        mcpConfig.setEnabled(store, id, enabled);
+        const results = await mcp.connectAll();
+        return { servers: mcpConfig.list(store), results };
+    });
+    ipcMain.handle('mcp.reconnect', async () => ({ results: await mcp.connectAll() }));
+    ipcMain.handle('mcp.status', () => mcp.status());
+    ipcMain.handle('mcp.testServer', async (e, cfg) => mcp.testServer(cfg || {}));
+
+    return { registry, mcp };
 }
 
 module.exports = { register, buildRegistry };

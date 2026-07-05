@@ -50,15 +50,19 @@ function buildEnvAndPath() {
  * @param {(event:string, payload:object)=>void} emit  scoped emitter (runId bound)
  */
 function runCliAgent(task, emit) {
-    const { conversation, projectPath, projectContext, systemPromptSuffix, signal } = task;
+    const { conversation, projectPath, projectContext, systemPromptSuffix, signal, mcpConfigFile, mcpServerNames } = task;
     const prompt = buildFullPrompt(conversation, { projectContext, systemPromptSuffix });
     const cwd = projectPath || process.cwd();
 
-    const args = ['-p', '--output-format', 'stream-json', '--verbose',
-        '--allowedTools', 'Read', 'Glob', 'Grep', 'Edit', 'Write',
+    const allowed = ['Read', 'Glob', 'Grep', 'Edit', 'Write',
         'Bash(npm:*)', 'Bash(node:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(find:*)',
         'Bash(git:*)', 'Bash(mkdir:*)', 'Bash(python:*)', 'Bash(python3:*)', 'Bash(npx:*)',
     ];
+    // Stage 4: allow tools from each enabled MCP server (mcp__<server>).
+    for (const n of (mcpServerNames || [])) allowed.push(`mcp__${n}`);
+
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--allowedTools', ...allowed];
+    if (mcpConfigFile) args.push('--mcp-config', mcpConfigFile);
 
     emit('status', { phase: 'started', backend: 'cli' });
 
