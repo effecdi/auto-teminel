@@ -32,6 +32,12 @@ else
   echo -e "${GREEN}  GH_TOKEN 확인 — GitHub Release 자동 배포 활성화${NC}"
 fi
 
+# Apple silicon 빌드 확인 — x64 Node(Rosetta/Intel Homebrew)로 돌리면 node-pty 등이 x64로 빌드될 수 있음
+if [[ "$(uname -s)" == "Darwin" && "$(sysctl -n hw.optional.arm64 2>/dev/null)" == "1" && "$(node -p process.arch)" != "arm64" ]]; then
+  echo -e "${YELLOW}[WARN] Apple silicon Mac인데 Node가 $(node -p process.arch)로 실행 중입니다 (Rosetta).${NC}"
+  echo -e "${YELLOW}  arm64 Node(/opt/homebrew 또는 nvm arm64)로 실행하는 것을 권장합니다.${NC}"
+fi
+
 # 현재 버전 확인
 CURRENT_VERSION=$(node -p "require('./package.json').version")
 echo -e "${YELLOW}현재 버전: v${CURRENT_VERSION}${NC}"
@@ -49,7 +55,7 @@ git tag "v${NEW_VERSION}" || echo -e "${YELLOW}  (tag already exists)${NC}"
 
 # 빌드 (+publish)
 echo -e "${CYAN}[3/4] electron-builder --mac ${PUBLISH_FLAG} 빌드 중...${NC}"
-npx electron-builder --mac ${PUBLISH_FLAG}
+npx electron-builder --mac --arm64 ${PUBLISH_FLAG}
 
 # 결과 확인
 echo -e "${CYAN}[4/4] 빌드 결과 확인${NC}"

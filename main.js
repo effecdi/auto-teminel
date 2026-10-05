@@ -3688,12 +3688,22 @@ function computeMcpOAuthKey(serverName, serverConfig) {
     return `${serverName}|${hash}`;
 }
 
+// ~/.claude.json is owned by the claude CLI (login state, onboarding, project settings).
+// Returns {} only when the file doesn't exist; returns null when it exists but can't be
+// parsed (e.g. claude CLI mid-write) so callers never overwrite it with a near-empty object.
 function readClaudeJson() {
-    try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')); } catch (e) { return {}; }
+    const file = path.join(os.homedir(), '.claude.json');
+    let raw;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? {} : null; }
+    try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
+// Atomic write (temp file + rename) so a concurrently running claude CLI never reads a partial file.
 function writeClaudeJson(data) {
-    fs.writeFileSync(path.join(os.homedir(), '.claude.json'), JSON.stringify(data, null, 2));
+    const file = path.join(os.homedir(), '.claude.json');
+    const tmp = `${file}.auto-terminal-${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, file);
 }
 
 function findAvailablePort() {
@@ -3705,7 +3715,7 @@ function findAvailablePort() {
 }
 
 ipcMain.handle('mcp.list', async () => {
-    const claudeJson = readClaudeJson();
+    const claudeJson = readClaudeJson() || {};
     const needsAuthPath = path.join(os.homedir(), '.claude', 'mcp-needs-auth-cache.json');
     let needsAuth = {};
     try { needsAuth = JSON.parse(fs.readFileSync(needsAuthPath, 'utf8')); } catch (e) {}
@@ -3818,6 +3828,10 @@ ipcMain.handle('mcp.authenticate', async (event, { serverName, serverUrl }) => {
 
                     // 7. Store token in ~/.claude.json mcpOAuth
                     const claudeJson = readClaudeJson();
+                    if (!claudeJson) {
+                        resolve({ success: false, error: '~/.claude.json could not be read — not modified' });
+                        return;
+                    }
                     const serverConfig = { type: 'http', url: serverUrl, headers: {} };
                     const key = computeMcpOAuthKey(serverName, serverConfig);
                     if (!claudeJson.mcpOAuth) claudeJson.mcpOAuth = {};
@@ -3874,6 +3888,7 @@ ipcMain.handle('mcp.authenticate', async (event, { serverName, serverUrl }) => {
 ipcMain.handle('mcp.revoke', async (event, { serverName, serverUrl }) => {
     try {
         const claudeJson = readClaudeJson();
+        if (!claudeJson) return { success: false, error: '~/.claude.json could not be read — not modified' };
         const serverConfig = { type: 'http', url: serverUrl, headers: {} };
         const key = computeMcpOAuthKey(serverName, serverConfig);
         if (claudeJson.mcpOAuth && claudeJson.mcpOAuth[key]) {
