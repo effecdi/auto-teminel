@@ -190,6 +190,17 @@ const autoApprovePatterns = [
     'Type something'                        // Claude CLI /init interview multi-select with Next
 ];
 
+// Interactive pickers Claude CLI may show on startup before its input prompt.
+// autoEnter: Enter selects the default option, which is the safe choice.
+const STARTUP_DIALOGS = [
+    { name: 'chrome-extension', autoEnter: true,
+      markers: ['Claude in Chrome extension detected', 'keep browser tools off'] },
+    // Never auto-answered: trusting a folder is the user's call (default is "No, exit").
+    { name: 'trust-folder', autoEnter: false,
+      hint: '폴더 신뢰 확인 대기 중 — ↓ 키로 "Yes, I trust this folder" 선택 후 Enter (작업 전송은 대기)',
+      markers: ['Do you trust the files in this folder', 'Yes, I trust this folder', 'Is this a project you created or one you trust'] }
+];
+
 function checkAutoApprove(projectId, rawData) {
     if (!autoApproveEnabled) return;
 
@@ -1344,6 +1355,39 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             // Broadcast to remote WS clients
             broadcastOutput(projectId, data);
 
+            // Claude CLI startup pickers (e.g. "Claude in Chrome extension detected")
+            // render a `❯` cursor that the ready-detection below mistakes for the
+            // input prompt, so queued tasks got typed into the picker. Hold
+            // readiness while one is on screen; for the Chrome picker press Enter
+            // once to take its default ("No, keep browser tools off").
+            entry._startupBuf = ((entry._startupBuf || '') + stripAnsi(data)).slice(-4000);
+            const startupDialog = STARTUP_DIALOGS.find(d => d.markers.some(m => entry._startupBuf.includes(m)));
+            if (!!startupDialog !== !!entry._dialogActive) {
+                // Tell the renderer to let the keyboard through while a picker waits
+                entry._dialogActive = !!startupDialog;
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('terminal.dialog', { projectId, active: entry._dialogActive });
+                }
+            }
+            if (startupDialog) {
+                entry.claudeReady = false;
+                if (startupDialog.hint && !entry._startupHintShown && mainWindow && !mainWindow.isDestroyed()) {
+                    entry._startupHintShown = true;
+                    mainWindow.webContents.send('terminal.incomingData', {
+                        projectId, data: `\r\n\x1b[33m[auto-terminel] ${startupDialog.hint}\x1b[0m\r\n`
+                    });
+                }
+                if (startupDialog.autoEnter && !entry._startupDialogAnswered) {
+                    entry._startupDialogAnswered = true;
+                    console.log(`[Main] Startup dialog "${startupDialog.name}" for ${projectId} — selecting default`);
+                    setTimeout(() => {
+                        if (entry.alive && entry.process) entry.process.write('\r');
+                        entry._startupBuf = '';
+                    }, 400);
+                }
+                return;
+            }
+
             // Output-based claudeReady detection:
             // When Claude CLI shows its prompt (❯) and we're NOT in an interview, mark ready
             if (!entry.claudeReady && entry.alive) {
@@ -1443,6 +1487,12 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
                 // Fallback timer: if detection doesn't trigger within 10s, force ready
                 entry._readyFallback = setTimeout(() => {
                     if (!entry.claudeReady && entry.alive) {
+                        // Don't force-ready while a startup picker still waits for input
+                        const buf = entry._startupBuf || '';
+                        if (STARTUP_DIALOGS.some(d => d.markers.some(m => buf.includes(m)))) {
+                            console.log(`[Main] Fallback ready skipped for ${projectId} — startup dialog on screen`);
+                            return;
+                        }
                         entry.claudeReady = true;
                         console.log(`[Main] Claude CLI ready (fallback timer) for ${projectId}`);
                         taskQueue.process();
@@ -2039,6 +2089,8 @@ ipcMain.on('terminal.keystroke', (event, { projectId, data }) => {
     const entry = ptyPool.get(projectId);
     if (entry && entry.alive && entry.process) {
         entry.process.write(data);
+        // User confirmed a startup picker — drop its text so detection can move on
+        if (entry._dialogActive && data.includes('\r')) entry._startupBuf = '';
     }
 });
 
