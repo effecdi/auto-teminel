@@ -461,9 +461,14 @@ async function getOrCreateTerminal(project) {
     // (\x1b[?1049h + \x1b[?1000/1002/1003/1006h), so it handles its OWN
     // scrolling. If we swallow the mouse sequences, wheel scroll does nothing.
     // xterm emits SGR mouse events as "\x1b[<...M/m" (and legacy X10 as "\x1b[M").
+    // Exception: while Claude CLI shows a startup picker (folder trust, etc.),
+    // main sends terminal.dialog {active:true} and the keyboard is let through
+    // so the user can answer it — otherwise the session hangs on that screen.
     term.onData((data) => {
         if (typeof data === 'string' && data.charCodeAt(0) === 0x1b &&
             (data.indexOf('[<') === 1 || data.indexOf('[M') === 1)) {
+            ipcRenderer.send('terminal.keystroke', { projectId: id, data });
+        } else if (entry.dialogActive) {
             ipcRenderer.send('terminal.keystroke', { projectId: id, data });
         }
         // else: ignore keyboard keystrokes (read-only terminal)
@@ -539,7 +544,17 @@ ipcRenderer.on('terminal.incomingData', (event, { projectId, data }) => {
     }
 });
 
+ipcRenderer.on('terminal.dialog', (event, { projectId, active }) => {
+    const entry = termPool.get(projectId);
+    if (entry) {
+        entry.dialogActive = !!active;
+        if (active) entry.term.focus();
+    }
+});
+
 ipcRenderer.on('terminal.exit', (event, { projectId, exitCode, signal }) => {
+    const dlgEntry = termPool.get(projectId);
+    if (dlgEntry) dlgEntry.dialogActive = false;
     console.log(`Terminal exited for ${projectId}: code=${exitCode}`);
     const entry = termPool.get(projectId);
     if (entry) {
@@ -1489,6 +1504,7 @@ function openSettings() {
     ]).then(([s, af, ar, hc, ai]) => {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
+        document.getElementById('claudePath').value = s.claudePath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
         document.getElementById('computerUseModel').value = s.computerUseModel || 'gemini-2.5-computer-use-preview-10-2025';
         document.getElementById('autoFixCooldown').value = af.cooldown || 30;
@@ -1543,6 +1559,7 @@ async function saveProject() {
 async function saveSettings() {
     const defaultClaudeArgs = document.getElementById('defaultClaudeArgs').value.trim();
     const shellPath = document.getElementById('shellPath').value.trim();
+    const claudePath = document.getElementById('claudePath').value.trim();
     const fontSize = parseInt(document.getElementById('termFontSize').value, 10) || 14;
 
     // Auto-Fix settings
@@ -1557,7 +1574,7 @@ async function saveSettings() {
     // Computer Control settings
     const computerUseModel = document.getElementById('computerUseModel').value;
 
-    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize, computerUseModel });
+    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, claudePath, fontSize, computerUseModel });
     await ipcRenderer.invoke('autoFix.setSettings', {
         cooldown: autoFixCooldown,
         template: autoFixTemplateText,
