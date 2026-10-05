@@ -1,6 +1,7 @@
 // AI Clients — Claude CLI spawn + Gemini SDK streaming
 const { spawn } = require('child_process');
 const os = require('os');
+const { resolveClaudePath, withClaudeOnPath } = require('./claude-path');
 const path = require('path');
 const { CLAUDE_SYSTEM_PROMPT, GEMINI_SYSTEM_PROMPT, buildProjectAwarePrompt } = require('./ai-personas');
 
@@ -59,6 +60,7 @@ function streamClaude(history, callbacks, options) {
     const pathSet = new Set((cleanEnv.PATH || '').split(':'));
     for (const p of extraPaths) pathSet.add(p);
     cleanEnv.PATH = [...pathSet].join(':');
+    withClaudeOnPath(cleanEnv);
     // Force UTF-8 locale (GUI apps inherit no LANG → Mac Roman mojibake on multibyte).
     const _utf8 = /UTF-?8$/i.test(cleanEnv.LANG || '') ? cleanEnv.LANG : 'en_US.UTF-8';
     cleanEnv.LANG = _utf8; cleanEnv.LC_ALL = _utf8; cleanEnv.LC_CTYPE = _utf8;
@@ -78,7 +80,7 @@ function streamClaude(history, callbacks, options) {
         'Bash(tar:*)', 'Bash(unzip:*)', 'Bash(ssh:*)', 'Bash(scp:*)',
     ];
 
-    const proc = spawn('claude', args, {
+    const proc = spawn(resolveClaudePath() || 'claude', args, {
         cwd,
         env: {
             ...cleanEnv,

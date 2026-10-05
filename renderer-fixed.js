@@ -1489,6 +1489,7 @@ function openSettings() {
     ]).then(([s, af, ar, hc, ai]) => {
         document.getElementById('defaultClaudeArgs').value = s.defaultClaudeArgs || '';
         document.getElementById('shellPath').value = s.shellPath || '';
+        document.getElementById('claudePath').value = s.claudePath || '';
         document.getElementById('termFontSize').value = s.fontSize || 14;
         document.getElementById('computerUseModel').value = s.computerUseModel || 'gemini-2.5-computer-use-preview-10-2025';
         document.getElementById('autoFixCooldown').value = af.cooldown || 30;
@@ -1543,6 +1544,7 @@ async function saveProject() {
 async function saveSettings() {
     const defaultClaudeArgs = document.getElementById('defaultClaudeArgs').value.trim();
     const shellPath = document.getElementById('shellPath').value.trim();
+    const claudePath = document.getElementById('claudePath').value.trim();
     const fontSize = parseInt(document.getElementById('termFontSize').value, 10) || 14;
 
     // Auto-Fix settings
@@ -1557,7 +1559,7 @@ async function saveSettings() {
     // Computer Control settings
     const computerUseModel = document.getElementById('computerUseModel').value;
 
-    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, fontSize, computerUseModel });
+    await ipcRenderer.invoke('save-settings', { defaultClaudeArgs, shellPath, claudePath, fontSize, computerUseModel });
     await ipcRenderer.invoke('autoFix.setSettings', {
         cooldown: autoFixCooldown,
         template: autoFixTemplateText,

@@ -17,6 +17,7 @@ const { WebSocketServer } = require('ws');
 const { DebateEngine, MODES } = require('./debate-engine');
 const { buildProjectContext, getOperationsList } = require('./project-context');
 const { streamClaude } = require('./ai-clients');
+const { resolveClaudePath, setClaudePathOverride, withClaudeOnPath } = require('./claude-path');
 const { classifyTask, buildExecutionPrompt, ROUTE_MODES } = require('./task-router');
 const { autoUpdater } = require('electron-updater');
 const { initAgentV2Defaults } = require('./agent/settings-defaults');
@@ -36,6 +37,7 @@ process.on('uncaughtException', (err) => {
 });
 
 const store = new Store();
+setClaudePathOverride(store.get('claudePath', ''));
 let mainWindow;
 let _forceClose = false;  // Skip close-confirmation when updater or user already confirmed
 
@@ -1290,6 +1292,8 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
         // browser-ctl 스크립트 bin 디렉터리 추가
         pathSet.add(BROWSER_CTL_BIN_DIR);
         cleanEnv.PATH = [...pathSet].join(':');
+        // claude 바이너리 디렉터리(nvm/volta 등)를 PATH 맨 앞에 추가 — node도 같이 잡히도록
+        withClaudeOnPath(cleanEnv);
         // Claude CLI가 브라우저 API를 사용할 수 있도록 환경변수 주입
         cleanEnv.BROWSER_CTL_URL = `http://127.0.0.1:${BROWSER_CTL_PORT}`;
         cleanEnv.BROWSER_SCREENSHOT_PATH = BROWSER_SCREENSHOT_PATH;
@@ -1416,7 +1420,19 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
         const defaultArgs = store.get('defaultClaudeArgs', '');
         const finalArgs = (claudeArgs || defaultArgs || '').trim();
         const modelFlag = claudeModel ? `--model ${claudeModel}` : '';
-        const claudeCmd = `claude ${modelFlag} ${finalArgs}`.replace(/\s+/g, ' ').trim();
+        // Use the absolute path when we can find it: a login shell (-l) does not
+        // source ~/.zshrc, so nvm-installed `claude` is otherwise "command not found".
+        const claudeBin = resolveClaudePath();
+        const claudeExe = !claudeBin ? 'claude'
+            : process.platform === 'win32' ? `"${claudeBin}"`
+            : `'${claudeBin.replace(/'/g, `'\\''`)}'`;
+        const claudeCmd = `${claudeExe} ${`${modelFlag} ${finalArgs}`.replace(/\s+/g, ' ').trim()}`.trim();
+        if (!claudeBin && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('terminal.incomingData', {
+                projectId,
+                data: '\r\n\x1b[33m[auto-terminel] claude CLI 경로를 찾지 못했습니다. 설정(⚙️)의 "Claude CLI Path"에 `which claude` 결과를 입력하세요.\x1b[0m\r\n'
+            });
+        }
 
         entry.autoRunTimer = setTimeout(() => {
             entry.autoRunTimer = null;
@@ -2122,6 +2138,7 @@ ipcMain.handle('terminal.sendToAll', (event, { text }) => {
 ipcMain.handle('save-settings', (event, settings) => {
     if (settings.defaultClaudeArgs !== undefined) store.set('defaultClaudeArgs', settings.defaultClaudeArgs);
     if (settings.shellPath !== undefined)         store.set('shellPath', settings.shellPath);
+    if (settings.claudePath !== undefined) { store.set('claudePath', settings.claudePath); setClaudePathOverride(settings.claudePath); }
     if (settings.fontSize !== undefined)           store.set('fontSize', settings.fontSize);
     if (settings.computerUseModel !== undefined)   store.set('computerUseModel', settings.computerUseModel);
     return { success: true };
@@ -2130,6 +2147,7 @@ ipcMain.handle('save-settings', (event, settings) => {
 ipcMain.handle('get-settings', () => ({
     defaultClaudeArgs: store.get('defaultClaudeArgs', ''),
     shellPath: store.get('shellPath', ''),
+    claudePath: store.get('claudePath', ''),
     fontSize: store.get('fontSize', 14),
     computerUseModel: store.get('computerUseModel', 'gemini-2.5-computer-use-preview-10-2025')
 }));
