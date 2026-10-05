@@ -137,8 +137,8 @@
 
         // API model
         const modelRow = el('div', 'agentv2-set-row');
-        modelRow.appendChild(el('label', 'agentv2-set-label', 'API 모델 (비우면 opus-4-8)'));
-        const modelIn = el('input', 'agentv2-mcp-in'); modelIn.value = s.claudeApiModel || ''; modelIn.placeholder = 'claude-opus-4-8';
+        modelRow.appendChild(el('label', 'agentv2-set-label', 'API 모델 (비우면 opus-5-5)'));
+        const modelIn = el('input', 'agentv2-mcp-in'); modelIn.value = s.claudeApiModel || ''; modelIn.placeholder = 'claude-opus-5-5';
         modelRow.appendChild(modelIn);
         settingsEl.appendChild(modelRow);
 

@@ -13,7 +13,7 @@ const Anthropic = AnthropicSDK.Anthropic || AnthropicSDK.default || AnthropicSDK
 const { buildSystemPrompt, toAnthropicMessages } = require('./providers/claude-api-provider');
 const { toHistory } = require('./providers/provider-interface');
 
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5-5';
 const MAX_ITERATIONS = 25; // runaway backstop
 
 class Orchestrator {
