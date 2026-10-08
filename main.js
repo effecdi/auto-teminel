@@ -1267,12 +1267,17 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             }
         }
 
-        // Pre-trust: Claude Code shows trust prompt when .claude/ doesn't exist inside the project
+        // Pre-trust: Claude Code checks settings.json projects[path].hasTrustDialogAccepted
         try {
-            const dotClaudeDir = path.join(safeCwd, '.claude');
-            if (!fs.existsSync(dotClaudeDir)) {
-                fs.mkdirSync(dotClaudeDir, { recursive: true });
-                console.log(`[Main] Pre-trusted: created ${dotClaudeDir}`);
+            const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+            let claudeSettings = {};
+            try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
+            if (!claudeSettings.projects) claudeSettings.projects = {};
+            if (!claudeSettings.projects[safeCwd]?.hasTrustDialogAccepted) {
+                claudeSettings.projects[safeCwd] = { ...(claudeSettings.projects[safeCwd] || {}), hasTrustDialogAccepted: true };
+                fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
+                fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
+                console.log(`[Main] Pre-trusted: ${safeCwd}`);
             }
         } catch (e) {
             console.warn(`[Main] Could not pre-trust path: ${e.message}`);
