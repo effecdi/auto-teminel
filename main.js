@@ -1340,6 +1340,10 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             claudeModel: claudeModel || ''
         };
 
+        // Trust prompt buffer per PTY (separate from autoApprove buffer)
+        let _trustBuf = '';
+        let _trustHandled = false;
+
         // PTY output → renderer + idle detection + error detection
         const onDataDisposable = proc.onData((data) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1348,6 +1352,18 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             resetIdleTimer(projectId);
             checkErrorPatterns(projectId, data);
             checkAutoApprove(projectId, data);
+
+            // Trust prompt: always auto-approve regardless of autoApproveEnabled
+            if (!_trustHandled) {
+                _trustBuf += stripAnsi(data);
+                if (_trustBuf.length > 1200) _trustBuf = _trustBuf.slice(-1200);
+                if (_trustBuf.includes('Yes, I trust this folder') || _trustBuf.includes('Quick safety check')) {
+                    _trustHandled = true;
+                    console.log(`[Main] Trust prompt detected for ${projectId}, auto-approving`);
+                    setTimeout(() => { if (entry.alive && entry.process) entry.process.write('\x1b[B'); }, 150);
+                    setTimeout(() => { if (entry.alive && entry.process) entry.process.write('\r'); }, 400);
+                }
+            }
             // Broadcast to remote WS clients
             broadcastOutput(projectId, data);
 
