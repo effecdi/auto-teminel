@@ -1234,18 +1234,14 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             }
         }
 
-        // Pre-trust project path in Claude's settings to skip trust prompt
+        // Pre-trust project path: ~/.claude/projects/<path-with-slashes-as-dashes>/
+        // Claude Code skips the trust prompt if this directory already exists
         try {
-            const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-            let claudeSettings = {};
-            try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
-            const trusted = new Set(claudeSettings.trustedFolders || []);
-            if (!trusted.has(safeCwd)) {
-                trusted.add(safeCwd);
-                claudeSettings.trustedFolders = [...trusted];
-                fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
-                fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
-                console.log(`[Main] Pre-trusted path: ${safeCwd}`);
+            const projectDirName = safeCwd.replace(/\//g, '-');
+            const claudeProjectDir = path.join(os.homedir(), '.claude', 'projects', projectDirName);
+            if (!fs.existsSync(claudeProjectDir)) {
+                fs.mkdirSync(claudeProjectDir, { recursive: true });
+                console.log(`[Main] Pre-trusted: created ${claudeProjectDir}`);
             }
         } catch (e) {
             console.warn(`[Main] Could not pre-trust path: ${e.message}`);
