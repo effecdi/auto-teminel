@@ -1234,6 +1234,23 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             }
         }
 
+        // Pre-trust project path in Claude's settings to skip trust prompt
+        try {
+            const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+            let claudeSettings = {};
+            try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
+            const trusted = new Set(claudeSettings.trustedFolders || []);
+            if (!trusted.has(safeCwd)) {
+                trusted.add(safeCwd);
+                claudeSettings.trustedFolders = [...trusted];
+                fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
+                fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
+                console.log(`[Main] Pre-trusted path: ${safeCwd}`);
+            }
+        } catch (e) {
+            console.warn(`[Main] Could not pre-trust path: ${e.message}`);
+        }
+
         const shell = getShell();
         const shellArgs = process.platform === 'win32' ? [] : ['-l'];
 
