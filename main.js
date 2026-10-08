@@ -1014,6 +1014,7 @@ app.whenReady().then(() => {
     startBrowserWsServer();
     writeBrowserCtlScript();
     startBrowserCtlServer();
+    preTrustAllProjects();
 
     // ===================================================================
     //  Auto-Updater (electron-updater)
@@ -1225,6 +1226,52 @@ function destroyPty(projectId) {
 function destroyAllPty() {
     for (const projectId of ptyPool.keys()) {
         destroyPty(projectId);
+    }
+}
+
+// ===================================================================
+//  Pre-trust ALL registered projects at startup (avoids file-lock race)
+// ===================================================================
+function preTrustAllProjects() {
+    try {
+        const projects = store.get('projects', []);
+        if (!projects.length) return;
+
+        const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+        let claudeSettings = {};
+        try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
+        if (!claudeSettings.projects) claudeSettings.projects = {};
+
+        const pathsToTrust = new Set();
+        for (const proj of projects) {
+            const p = proj.path;
+            if (!p) continue;
+            pathsToTrust.add(p);
+            try { pathsToTrust.add(fs.realpathSync(p)); } catch (_) {}
+            // Walk up parents — Claude checks each ancestor too
+            let cur = p;
+            for (let i = 0; i < 6; i++) {
+                const parent = path.dirname(cur);
+                if (parent === cur) break;
+                pathsToTrust.add(parent);
+                cur = parent;
+            }
+        }
+
+        let wrote = false;
+        for (const p of pathsToTrust) {
+            if (!claudeSettings.projects[p]?.hasTrustDialogAccepted) {
+                claudeSettings.projects[p] = { ...(claudeSettings.projects[p] || {}), hasTrustDialogAccepted: true };
+                wrote = true;
+            }
+        }
+        if (wrote) {
+            fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
+            fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
+            console.log(`[Main] Startup pre-trust: ${pathsToTrust.size} paths`);
+        }
+    } catch (e) {
+        console.warn(`[Main] preTrustAllProjects error: ${e.message}`);
     }
 }
 
@@ -2376,6 +2423,7 @@ ipcMain.handle('add-project', async (event, projectData) => {
         };
         projects.push(newProject);
         store.set('projects', projects);
+        preTrustAllProjects();
         return { success: true, project: newProject };
     } catch (error) {
         return { success: false, error: error.message };
