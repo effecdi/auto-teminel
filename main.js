@@ -1314,13 +1314,29 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
 
             // Trust prompt: always auto-approve regardless of autoApproveEnabled
             if (!_trustHandled) {
-                _trustBuf += stripAnsi(data);
+                const stripped = stripAnsi(data);
+                _trustBuf += stripped;
                 if (_trustBuf.length > 1200) _trustBuf = _trustBuf.slice(-1200);
-                if (_trustBuf.includes('Yes, I trust this folder') || _trustBuf.includes('Quick safety check')) {
+                // Debug: log all PTY output for first 3s to diagnose
+                if (!entry._trustDebugEnd) entry._trustDebugEnd = Date.now() + 3000;
+                if (Date.now() < entry._trustDebugEnd) {
+                    console.log(`[TrustDebug][${projectId}] raw=${JSON.stringify(data.substring(0, 120))} stripped=${JSON.stringify(stripped.substring(0, 120))}`);
+                }
+                if (_trustBuf.includes('Yes, I trust this folder') || _trustBuf.includes('Quick safety check') || _trustBuf.includes('trust this folder')) {
                     _trustHandled = true;
-                    console.log(`[Main] Trust prompt detected for ${projectId}, auto-approving`);
-                    setTimeout(() => { if (entry.alive && entry.process) entry.process.write('\x1b[B'); }, 150);
-                    setTimeout(() => { if (entry.alive && entry.process) entry.process.write('\r'); }, 400);
+                    console.log(`[Main] Trust prompt detected for ${projectId}, sending Down+Enter`);
+                    setTimeout(() => {
+                        if (entry.alive && entry.process) {
+                            entry.process.write('\x1b[B');
+                            console.log(`[Main] Trust: sent Down arrow`);
+                        }
+                    }, 200);
+                    setTimeout(() => {
+                        if (entry.alive && entry.process) {
+                            entry.process.write('\r');
+                            console.log(`[Main] Trust: sent Enter`);
+                        }
+                    }, 500);
                 }
             }
             // Broadcast to remote WS clients
