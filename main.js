@@ -1273,11 +1273,29 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             let claudeSettings = {};
             try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
             if (!claudeSettings.projects) claudeSettings.projects = {};
-            if (!claudeSettings.projects[safeCwd]?.hasTrustDialogAccepted) {
-                claudeSettings.projects[safeCwd] = { ...(claudeSettings.projects[safeCwd] || {}), hasTrustDialogAccepted: true };
+            // Write trust for exact path + realpath + all parents up to root
+            const pathsToTrust = new Set();
+            pathsToTrust.add(safeCwd);
+            try { pathsToTrust.add(fs.realpathSync(safeCwd)); } catch (_) {}
+            // Also walk up parents (Claude walks up too)
+            let cur = safeCwd;
+            for (let i = 0; i < 5; i++) {
+                const parent = path.dirname(cur);
+                if (parent === cur) break;
+                pathsToTrust.add(parent);
+                cur = parent;
+            }
+            let wrote = false;
+            for (const p of pathsToTrust) {
+                if (!claudeSettings.projects[p]?.hasTrustDialogAccepted) {
+                    claudeSettings.projects[p] = { ...(claudeSettings.projects[p] || {}), hasTrustDialogAccepted: true };
+                    wrote = true;
+                }
+            }
+            if (wrote) {
                 fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
                 fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
-                console.log(`[Main] Pre-trusted: ${safeCwd}`);
+                console.log(`[Main] Pre-trusted paths:`, [...pathsToTrust]);
             }
         } catch (e) {
             console.warn(`[Main] Could not pre-trust path: ${e.message}`);
