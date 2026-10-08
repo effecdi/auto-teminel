@@ -185,7 +185,8 @@ const autoApprovePatterns = [
     'Run /compact',        // Context limit: "Context low · Run /compact to compact & continue"
     'Please run /login',   // Auth error: "API Error: 401 ... Please run /login"
     'Skip interview and plan immediately',  // Claude CLI /init interview — auto-skip
-    'Type something'                        // Claude CLI /init interview multi-select with Next
+    'Type something',                       // Claude CLI /init interview multi-select with Next
+    'Yes, I trust this folder',             // Trust prompt — new directory confirmation
 ];
 
 function checkAutoApprove(projectId, rawData) {
@@ -228,7 +229,17 @@ function checkAutoApprove(projectId, rawData) {
 
                 console.log(`[AutoApprove] Sending response (mode: ${autoApproveMode})`);
 
-                if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
+                if (buf.includes('Yes, I trust this folder')) {
+                    // Trust prompt: "No, exit" is selected by default → Down + Enter to pick "Yes, I trust this folder"
+                    e.claudeReady = false;
+                    console.log('[AutoApprove] Trust prompt detected, selecting "Yes, I trust this folder"');
+                    setTimeout(() => {
+                        if (e.alive && e.process) e.process.write('\x1b[B'); // Down
+                    }, 100);
+                    setTimeout(() => {
+                        if (e.alive && e.process) e.process.write('\r'); // Enter
+                    }, 300);
+                } else if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
                     // Claude CLI /init interview detected — block task dispatch during interview
                     e.claudeReady = false;
                     console.log('[AutoApprove] Interview detected, claudeReady=false to block dispatch');
