@@ -43,10 +43,10 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --ignore-scripts
 
-      - name: Rebuild native modules
-        run: npm run rebuild
+      - name: Rebuild native modules for Electron
+        run: npx electron-rebuild -f -w node-pty
 
       - name: Build & Publish
         env:
