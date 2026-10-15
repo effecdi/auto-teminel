@@ -39,11 +39,14 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
-- 🔴 현재 진행 중: 2026-10-15 최신 모델 반영 — 수정 완료 (7개 파일), 점검 통과, deploy.sh patch 실행 중
-  - models.json: Fable 5.1(flagship) / Opus 5.5·Sonnet 5.5·Haiku 5.5(current) 추가, 기존 전부 legacy 강등 (삭제 없음), lastUpdated 2026-10-15
+- ✅ 완료 (2026-10-15): 최신 Claude 모델 반영 + v4.14.2 배포
+  - models.json: Fable 5.1(flagship) / Opus 5.5·Sonnet 5.5·Haiku 5.5(current), 기존 모델 legacy 강등 (삭제 없음), lastUpdated 2026-10-15
   - 기본값 opus-4-8 → opus-5-5: orchestrator.js:16, claude-api-provider.js:17(+주석), renderer-fixed.js:597/690/6480, agent-panel.js:140-141, app-next/app.js:210
-  - 점검: node --check 6파일 통과, models.json 파싱 OK (13 models), @anthropic-ai/sdk 0.109.1, claude CLI 2.1.50
-  - 복원 지점: ff7e925 (v4.14.0, clean)
+  - 점검: node --check 통과, models.json 파싱 OK (13 models), @anthropic-ai/sdk 0.109.1, claude CLI 2.1.50
+  - 원격 main이 15커밋 앞서 있었음 (다른 세션: trust pre-register + GitHub Actions CI) → merge로 통합 (6bbaf12)
+  - v4.14.1 릴리스는 merge 전 코드로 빌드된 stale 상태 → v4.14.2가 즉시 대체 (자동 업데이터는 최신 릴리스만 봄)
+  - 복원 지점: ff7e925 (v4.14.0) / 배포 커밋: 4f4b389 (v4.14.2)
+- 🐛 발견/수정: deploy.sh 버그 — draft 퍼블리시가 git push보다 먼저 실행돼 GitHub이 태그를 구 원격 HEAD에 생성 → 태그가 엉뚱한 커밋을 가리키고 태그 push 거부됨. 순서 교체(push 먼저)로 수정. 단 원격 태그 v4.14.1/v4.14.2는 여전히 8d9f9a5를 가리킴 — 고치려면 force push 필요해서 사용자 승인 대기
 - ✅ 완료: v4.8.4 우측 사이드바 SESSION INFO / 대시보드 / Health Check 패널 제거
   - info-header, info-content (Status/Project/Path/Branch/PID), dashboard-grid (4카드), auto-status-row (4배지), healthCheckDashboard 삭제
   - 탭바 + 탭 내용(Learn 포함) 유지

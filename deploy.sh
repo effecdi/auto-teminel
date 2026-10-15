@@ -77,17 +77,19 @@ fi
 echo -e "${CYAN}----------------------------------------${NC}"
 
 if [ -n "$PUBLISH_FLAG" ]; then
-  # electron-builder creates releases as draft — publish it so auto-updater can detect
-  echo -e "${CYAN}[5/5] Draft 릴리스 퍼블리시...${NC}"
-  gh release edit "v${NEW_VERSION}" --draft=false 2>/dev/null && \
-    echo -e "${GREEN}  → 릴리스 퍼블리시 완료${NC}" || \
-    echo -e "${YELLOW}  → gh CLI 없거나 실패 — GitHub에서 수동으로 Draft 해제 필요${NC}"
-
-  # auto push
-  echo -e "${CYAN}[6/6] Git push...${NC}"
+  # IMPORTANT: push FIRST, publish SECOND.
+  # Draft 퍼블리시가 push보다 먼저 실행되면 GitHub이 태그를 구 원격 HEAD에
+  # 만들어버려서 태그가 엉뚱한 커밋을 가리키고 이후 태그 push도 거부됨 (v4.14.1/4.14.2에서 발생).
+  echo -e "${CYAN}[5/6] Git push...${NC}"
   git push origin main && git push origin "v${NEW_VERSION}" && \
     echo -e "${GREEN}  → push 완료${NC}" || \
     echo -e "${RED}  → push 실패${NC}"
+
+  # electron-builder creates releases as draft — publish it so auto-updater can detect
+  echo -e "${CYAN}[6/6] Draft 릴리스 퍼블리시...${NC}"
+  gh release edit "v${NEW_VERSION}" --draft=false 2>/dev/null && \
+    echo -e "${GREEN}  → 릴리스 퍼블리시 완료${NC}" || \
+    echo -e "${YELLOW}  → gh CLI 없거나 실패 — GitHub에서 수동으로 Draft 해제 필요${NC}"
 
   echo -e "${GREEN}[완료] v${CURRENT_VERSION} → v${NEW_VERSION} GitHub Release 배포 성공!${NC}"
   echo -e "${CYAN}  → https://github.com/effecdi/auto-teminel/releases/tag/v${NEW_VERSION}${NC}"
