@@ -5,9 +5,9 @@
 // the CLI uses. It is only selected when settings.claudeMode === 'api'. Default
 // stays 'cli' (free). Advantages: vision (image input) + structured streaming.
 //
-// Model default: claude-opus-5-5 (2026-10 공식 권장 기본). Opus 5.5는 adaptive
-// thinking 상시 지원, extended thinking(budget_tokens)은 미지원 — temperature/
-// top_p/top_k/budget_tokens 전부 안 보냄. 최상위는 claude-fable-5-1 (고난도 추론용).
+// Model default: claude-opus-5-5 (2026-10 공식 권장 기본). Opus (4.8+ / 5.x)는
+// temperature/top_p/top_k/budget_tokens 미지원 — 전부 안 보냄. adaptive thinking
+// 상시 지원으로 모델이 추론 깊이를 스스로 조절. 최상위는 claude-fable-5-1 (고난도 추론용).
 
 const AnthropicSDK = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicSDK.Anthropic || AnthropicSDK.default || AnthropicSDK;

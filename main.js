@@ -185,7 +185,8 @@ const autoApprovePatterns = [
     'Run /compact',        // Context limit: "Context low · Run /compact to compact & continue"
     'Please run /login',   // Auth error: "API Error: 401 ... Please run /login"
     'Skip interview and plan immediately',  // Claude CLI /init interview — auto-skip
-    'Type something'                        // Claude CLI /init interview multi-select with Next
+    'Type something',                       // Claude CLI /init interview multi-select with Next
+    'Yes, I trust this folder',             // Trust prompt — new directory confirmation
 ];
 
 function checkAutoApprove(projectId, rawData) {
@@ -228,7 +229,17 @@ function checkAutoApprove(projectId, rawData) {
 
                 console.log(`[AutoApprove] Sending response (mode: ${autoApproveMode})`);
 
-                if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
+                if (buf.includes('Yes, I trust this folder')) {
+                    // Trust prompt: "No, exit" is selected by default → Down + Enter to pick "Yes, I trust this folder"
+                    e.claudeReady = false;
+                    console.log('[AutoApprove] Trust prompt detected, selecting "Yes, I trust this folder"');
+                    setTimeout(() => {
+                        if (e.alive && e.process) e.process.write('\x1b[B'); // Down
+                    }, 100);
+                    setTimeout(() => {
+                        if (e.alive && e.process) e.process.write('\r'); // Enter
+                    }, 300);
+                } else if (buf.includes('Skip interview and plan immediately') || buf.includes('Type something')) {
                     // Claude CLI /init interview detected — block task dispatch during interview
                     e.claudeReady = false;
                     console.log('[AutoApprove] Interview detected, claudeReady=false to block dispatch');
@@ -1003,6 +1014,7 @@ app.whenReady().then(() => {
     startBrowserWsServer();
     writeBrowserCtlScript();
     startBrowserCtlServer();
+    preTrustAllProjects();
 
     // ===================================================================
     //  Auto-Updater (electron-updater)
@@ -1218,6 +1230,52 @@ function destroyAllPty() {
 }
 
 // ===================================================================
+//  Pre-trust ALL registered projects at startup (avoids file-lock race)
+// ===================================================================
+function preTrustAllProjects() {
+    try {
+        const projects = store.get('projects', []);
+        if (!projects.length) return;
+
+        const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+        let claudeSettings = {};
+        try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
+        if (!claudeSettings.projects) claudeSettings.projects = {};
+
+        const pathsToTrust = new Set();
+        for (const proj of projects) {
+            const p = proj.path;
+            if (!p) continue;
+            pathsToTrust.add(p);
+            try { pathsToTrust.add(fs.realpathSync(p)); } catch (_) {}
+            // Walk up parents — Claude checks each ancestor too
+            let cur = p;
+            for (let i = 0; i < 6; i++) {
+                const parent = path.dirname(cur);
+                if (parent === cur) break;
+                pathsToTrust.add(parent);
+                cur = parent;
+            }
+        }
+
+        let wrote = false;
+        for (const p of pathsToTrust) {
+            if (!claudeSettings.projects[p]?.hasTrustDialogAccepted) {
+                claudeSettings.projects[p] = { ...(claudeSettings.projects[p] || {}), hasTrustDialogAccepted: true };
+                wrote = true;
+            }
+        }
+        if (wrote) {
+            fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
+            fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
+            console.log(`[Main] Startup pre-trust: ${pathsToTrust.size} paths`);
+        }
+    } catch (e) {
+        console.warn(`[Main] preTrustAllProjects error: ${e.message}`);
+    }
+}
+
+// ===================================================================
 //  IPC: terminal.spawn  +  shared spawnPtyForProject
 // ===================================================================
 
@@ -1254,6 +1312,40 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             } catch (_) {
                 safeCwd = os.homedir();
             }
+        }
+
+        // Pre-trust: Claude Code checks settings.json projects[path].hasTrustDialogAccepted
+        try {
+            const claudeSettingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+            let claudeSettings = {};
+            try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf-8')); } catch (_) {}
+            if (!claudeSettings.projects) claudeSettings.projects = {};
+            // Write trust for exact path + realpath + all parents up to root
+            const pathsToTrust = new Set();
+            pathsToTrust.add(safeCwd);
+            try { pathsToTrust.add(fs.realpathSync(safeCwd)); } catch (_) {}
+            // Also walk up parents (Claude walks up too)
+            let cur = safeCwd;
+            for (let i = 0; i < 5; i++) {
+                const parent = path.dirname(cur);
+                if (parent === cur) break;
+                pathsToTrust.add(parent);
+                cur = parent;
+            }
+            let wrote = false;
+            for (const p of pathsToTrust) {
+                if (!claudeSettings.projects[p]?.hasTrustDialogAccepted) {
+                    claudeSettings.projects[p] = { ...(claudeSettings.projects[p] || {}), hasTrustDialogAccepted: true };
+                    wrote = true;
+                }
+            }
+            if (wrote) {
+                fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
+                fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2), 'utf-8');
+                console.log(`[Main] Pre-trusted paths:`, [...pathsToTrust]);
+            }
+        } catch (e) {
+            console.warn(`[Main] Could not pre-trust path: ${e.message}`);
         }
 
         const shell = getShell();
@@ -1329,6 +1421,10 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             claudeModel: claudeModel || ''
         };
 
+        // Trust prompt buffer per PTY (separate from autoApprove buffer)
+        let _trustBuf = '';
+        let _trustHandled = false;
+
         // PTY output → renderer + idle detection + error detection
         const onDataDisposable = proc.onData((data) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1337,6 +1433,34 @@ function spawnPtyForProject(projectId, projectPath, claudeArgs, cols, rows, clau
             resetIdleTimer(projectId);
             checkErrorPatterns(projectId, data);
             checkAutoApprove(projectId, data);
+
+            // Trust prompt: always auto-approve regardless of autoApproveEnabled
+            if (!_trustHandled) {
+                const stripped = stripAnsi(data);
+                _trustBuf += stripped;
+                if (_trustBuf.length > 1200) _trustBuf = _trustBuf.slice(-1200);
+                // Debug: log all PTY output for first 3s to diagnose
+                if (!entry._trustDebugEnd) entry._trustDebugEnd = Date.now() + 3000;
+                if (Date.now() < entry._trustDebugEnd) {
+                    console.log(`[TrustDebug][${projectId}] raw=${JSON.stringify(data.substring(0, 120))} stripped=${JSON.stringify(stripped.substring(0, 120))}`);
+                }
+                if (_trustBuf.includes('Yes, I trust this folder') || _trustBuf.includes('Quick safety check') || _trustBuf.includes('trust this folder')) {
+                    _trustHandled = true;
+                    console.log(`[Main] Trust prompt detected for ${projectId}, sending Down+Enter`);
+                    setTimeout(() => {
+                        if (entry.alive && entry.process) {
+                            entry.process.write('\x1b[B');
+                            console.log(`[Main] Trust: sent Down arrow`);
+                        }
+                    }, 200);
+                    setTimeout(() => {
+                        if (entry.alive && entry.process) {
+                            entry.process.write('\r');
+                            console.log(`[Main] Trust: sent Enter`);
+                        }
+                    }, 500);
+                }
+            }
             // Broadcast to remote WS clients
             broadcastOutput(projectId, data);
 
@@ -2299,6 +2423,7 @@ ipcMain.handle('add-project', async (event, projectData) => {
         };
         projects.push(newProject);
         store.set('projects', projects);
+        preTrustAllProjects();
         return { success: true, project: newProject };
     } catch (error) {
         return { success: false, error: error.message };
@@ -3398,6 +3523,51 @@ ipcMain.handle('ai.setSettings', (event, settings) => {
     if (settings.imageBackend === 'gemini' || settings.imageBackend === 'chatgpt-web') store.set('imageBackend', settings.imageBackend);
     if (settings.geminiImageModel !== undefined) store.set('geminiImageModel', settings.geminiImageModel);
     return { success: true };
+});
+
+// ===================================================================
+//  Scenario.gg — Image Generation API
+// ===================================================================
+
+ipcMain.handle('scenario.getSettings', () => {
+    return {
+        scenarioApiKey: store.get('scenarioApiKey', ''),
+        scenarioApiSecret: store.get('scenarioApiSecret', ''),
+        scenarioModelId: store.get('scenarioModelId', ''),
+    };
+});
+
+ipcMain.handle('scenario.setSettings', (event, settings) => {
+    if (settings.scenarioApiKey !== undefined) store.set('scenarioApiKey', settings.scenarioApiKey);
+    if (settings.scenarioApiSecret !== undefined) store.set('scenarioApiSecret', settings.scenarioApiSecret);
+    if (settings.scenarioModelId !== undefined) store.set('scenarioModelId', settings.scenarioModelId);
+    return { success: true };
+});
+
+ipcMain.handle('scenario.fetchModels', async () => {
+    const apiKey = store.get('scenarioApiKey', '');
+    const apiSecret = store.get('scenarioApiSecret', '');
+    if (!apiKey || !apiSecret) return { success: false, error: 'API Key와 Secret을 먼저 입력하세요.' };
+
+    const authHeader = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
+    try {
+        const resp = await fetch('https://api.scenario.gg/v1/models?pageSize=100', {
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            return { success: false, error: `API 오류 ${resp.status}: ${text.substring(0, 200)}` };
+        }
+        const data = await resp.json();
+        const models = (data.models || data.items || []).map(m => ({
+            id: m.id,
+            name: m.name || m.id,
+            status: m.status || '',
+        }));
+        return { success: true, models };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 // ===================================================================
