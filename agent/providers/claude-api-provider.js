@@ -5,16 +5,16 @@
 // the CLI uses. It is only selected when settings.claudeMode === 'api'. Default
 // stays 'cli' (free). Advantages: vision (image input) + structured streaming.
 //
-// Model default: claude-opus-4-8 (current most capable). Opus 4.8 rejects
-// temperature/top_p/top_k and budget_tokens — we send none of them; adaptive
-// thinking is on so the model self-moderates reasoning depth.
+// Model default: claude-opus-5-5 (2026-10 공식 권장 기본). Opus 5.5는 adaptive
+// thinking 상시 지원, extended thinking(budget_tokens)은 미지원 — temperature/
+// top_p/top_k/budget_tokens 전부 안 보냄. 최상위는 claude-fable-5-1 (고난도 추론용).
 
 const AnthropicSDK = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicSDK.Anthropic || AnthropicSDK.default || AnthropicSDK;
 const { CLAUDE_SYSTEM_PROMPT, buildProjectAwarePrompt } = require('../../ai-personas');
 const { Provider, toHistory, normalizeCallbacks } = require('./provider-interface');
 
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5-5';
 const DEFAULT_MAX_TOKENS = 16000;
 
 /** Build the system prompt the same way ai-clients.buildClaudePrompt does. */

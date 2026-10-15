@@ -39,6 +39,11 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
+- 🔴 현재 진행 중: 2026-10-15 최신 모델 반영 — 수정 완료 (7개 파일), 점검 통과, deploy.sh patch 실행 중
+  - models.json: Fable 5.1(flagship) / Opus 5.5·Sonnet 5.5·Haiku 5.5(current) 추가, 기존 전부 legacy 강등 (삭제 없음), lastUpdated 2026-10-15
+  - 기본값 opus-4-8 → opus-5-5: orchestrator.js:16, claude-api-provider.js:17(+주석), renderer-fixed.js:597/690/6480, agent-panel.js:140-141, app-next/app.js:210
+  - 점검: node --check 6파일 통과, models.json 파싱 OK (13 models), @anthropic-ai/sdk 0.109.1, claude CLI 2.1.50
+  - 복원 지점: ff7e925 (v4.14.0, clean)
 - ✅ 완료: v4.8.4 우측 사이드바 SESSION INFO / 대시보드 / Health Check 패널 제거
   - info-header, info-content (Status/Project/Path/Branch/PID), dashboard-grid (4카드), auto-status-row (4배지), healthCheckDashboard 삭제
   - 탭바 + 탭 내용(Learn 포함) 유지

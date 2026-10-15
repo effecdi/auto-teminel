@@ -207,7 +207,7 @@
             const mk = (labelText, node) => { const r = el('div', 'row'); r.appendChild(el('label', '', labelText)); r.appendChild(node); m.appendChild(r); return node; };
             const modeSel = el('select'); [['cli', 'CLI (무료·구독)'], ['api', 'API (유료·토큰당)']].forEach(([v, t]) => { const o = el('option', '', t); o.value = v; if (s.claudeMode === v) o.selected = true; modeSel.appendChild(o); }); mk('Claude 백엔드', modeSel);
             const keyIn = el('input'); keyIn.type = 'password'; keyIn.placeholder = s.hasAnthropicApiKey ? '설정됨 — 변경 시 새 키' : 'sk-ant-...'; mk('Anthropic API 키', keyIn);
-            const modelIn = el('input'); modelIn.value = s.claudeApiModel || ''; modelIn.placeholder = 'claude-opus-4-8'; mk('API 모델', modelIn);
+            const modelIn = el('input'); modelIn.value = s.claudeApiModel || ''; modelIn.placeholder = 'claude-opus-5-5'; mk('API 모델', modelIn);
             const imgSel = el('select'); [['gemini', 'Gemini (API)'], ['chatgpt-web', 'ChatGPT 웹 (무료·실험적)']].forEach(([v, t]) => { const o = el('option', '', t); o.value = v; if (s.imageBackend === v) o.selected = true; imgSel.appendChild(o); }); mk('이미지 백엔드', imgSel);
             const gimIn = el('input'); gimIn.value = s.geminiImageModel || ''; gimIn.placeholder = 'gemini-2.5-flash-image-preview'; mk('Gemini 이미지 모델', gimIn);
             const chk = el('div', 'check-row'); const box = el('input'); box.type = 'checkbox'; box.checked = !!en.autoApprove; chk.appendChild(box); chk.appendChild(el('span', '', '도구 자동 승인 (위험)')); m.appendChild(chk);
