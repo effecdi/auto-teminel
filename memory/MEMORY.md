@@ -39,6 +39,11 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
+- 🔴 현재 진행 중 (2026-10-15): 자동 모델 업데이트 + 자동 배포 기능
+  - 목표: Claude 모델 업데이트 자동 감지 → models.json 자동 갱신 → 자동 배포
+  - 구조: `scripts/update-models.js` (공식 문서 md에서 모델 ID 파싱, 신규만 추가·삭제 없음) + `.github/workflows/update-models.yml` (매일 cron + 수동, 변경 시 patch bump + commit + push → 기존 release.yml이 자동 릴리스)
+  - push는 secrets.GH_TOKEN으로 해야 release.yml 트리거됨 (기본 GITHUB_TOKEN push는 워크플로우 안 울림)
+  - 복원 지점: 7f6dac6 (작업 전 HEAD, clean)
 - ✅ 완료 (2026-10-15): 최신 Claude 모델 반영 + v4.14.2 배포
   - models.json: Fable 5.1(flagship) / Opus 5.5·Sonnet 5.5·Haiku 5.5(current), 기존 모델 legacy 강등 (삭제 없음), lastUpdated 2026-10-15
   - 기본값 opus-4-8 → opus-5-5: orchestrator.js:16, claude-api-provider.js:17(+주석), renderer-fixed.js:597/690/6480, agent-panel.js:140-141, app-next/app.js:210

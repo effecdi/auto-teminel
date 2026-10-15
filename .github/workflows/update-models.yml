@@ -1,0 +1,42 @@
+name: Auto Update Models
+
+# Claude 모델 업데이트 자동 감지 → models.json 갱신 → 버전 bump → push
+# push되면 기존 release.yml(Build & Release)이 자동으로 릴리스까지 수행.
+# NOTE: push에 secrets.GH_TOKEN(PAT)을 써야 release.yml이 트리거됨
+#       (기본 GITHUB_TOKEN으로 push하면 다른 워크플로우가 실행되지 않음)
+
+on:
+  schedule:
+    - cron: '0 0,12 * * *' # 매일 2회 (UTC 00:00, 12:00)
+  workflow_dispatch: {}
+
+jobs:
+  update-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for new Claude models
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/update-models.js
+
+      - name: Commit & push if changed
+        run: |
+          if git diff --quiet models.json; then
+            echo "모델 변경 없음 — 종료"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          NEW_VERSION=$(npm version patch --no-git-tag-version | tr -d 'v')
+          git add models.json package.json
+          git commit -m "chore: 신규 Claude 모델 자동 반영 (v${NEW_VERSION})"
+          git push origin main
+          echo "push 완료 — release.yml이 v${NEW_VERSION} 릴리스를 자동 생성함"
