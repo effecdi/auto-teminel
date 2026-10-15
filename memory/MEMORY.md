@@ -39,11 +39,12 @@
 > **작업 시작할 때 여기에 기록, 진행 중에도 수시로 업데이트, 끝나면 완료 처리**
 > 갑자기 종료돼도 다음 세션에서 이어갈 수 있도록!!
 
-- 🔴 현재 진행 중 (2026-10-15): 자동 모델 업데이트 + 자동 배포 기능
-  - 목표: Claude 모델 업데이트 자동 감지 → models.json 자동 갱신 → 자동 배포
-  - 구조: `scripts/update-models.js` (공식 문서 md에서 모델 ID 파싱, 신규만 추가·삭제 없음) + `.github/workflows/update-models.yml` (매일 cron + 수동, 변경 시 patch bump + commit + push → 기존 release.yml이 자동 릴리스)
-  - push는 secrets.GH_TOKEN으로 해야 release.yml 트리거됨 (기본 GITHUB_TOKEN push는 워크플로우 안 울림)
-  - 복원 지점: 7f6dac6 (작업 전 HEAD, clean)
+- ✅ 완료 (2026-10-15): 자동 모델 업데이트 + 자동 배포 기능 (커밋 8847f86)
+  - `scripts/update-models.js`: 공식 문서 md(+옵션 ANTHROPIC_API_KEY 있으면 Models API)에서 모델 ID 수집 → models.json에 신규만 추가 (기존 삭제 절대 안 함), 같은 패밀리 하위 버전 current→legacy 강등, retired/deprecated 섹션 제외, 수집 0개면 변경 없이 실패 처리 (안전장치)
+  - `.github/workflows/update-models.yml`: 매일 2회 cron (UTC 00/12시) + 수동 트리거. 변경 시 patch 버전 bump + commit + push → 기존 release.yml이 자동 릴리스. push에 secrets.GH_TOKEN(PAT) 사용 필수 (기본 GITHUB_TOKEN push는 다른 워크플로우 트리거 안 됨)
+  - 🔑 중요: 레포에 Actions 시크릿이 하나도 없었음 → release.yml도 원래 돌 수 없는 상태였음. `gh secret set GH_TOKEN`으로 등록 (gh auth token 값) → 둘 다 작동 확인
+  - 검증: 시뮬레이션 테스트 통과 (opus-5-5 제거 후 재추가·강등·정렬 확인), Actions 수동 실행 success (run 38686329152, "모델 변경 없음" 정상 종료)
+  - 복원 지점: 7f6dac6 (작업 전 HEAD)
 - ✅ 완료 (2026-10-15): 최신 Claude 모델 반영 + v4.14.2 배포
   - models.json: Fable 5.1(flagship) / Opus 5.5·Sonnet 5.5·Haiku 5.5(current), 기존 모델 legacy 강등 (삭제 없음), lastUpdated 2026-10-15
   - 기본값 opus-4-8 → opus-5-5: orchestrator.js:16, claude-api-provider.js:17(+주석), renderer-fixed.js:597/690/6480, agent-panel.js:140-141, app-next/app.js:210
