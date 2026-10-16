@@ -12,6 +12,7 @@
 
 const { spawn } = require('child_process');
 const os = require('os');
+const { resolveClaudePath, withClaudeOnPath } = require('../claude-path');
 const path = require('path');
 const { CLAUDE_SYSTEM_PROMPT, buildProjectAwarePrompt } = require('../ai-personas');
 const { toHistory } = require('./providers/provider-interface');
@@ -41,6 +42,7 @@ function buildEnvAndPath() {
     const set = new Set((env.PATH || '').split(':'));
     for (const p of extra) set.add(p);
     env.PATH = [...set].join(':');
+    withClaudeOnPath(env);
     // Force UTF-8 locale (GUI apps inherit no LANG → Mac Roman mojibake on multibyte).
     const utf8 = /UTF-?8$/i.test(env.LANG || '') ? env.LANG : 'en_US.UTF-8';
     env.LANG = utf8; env.LC_ALL = utf8; env.LC_CTYPE = utf8;
@@ -69,7 +71,7 @@ function runCliAgent(task, emit) {
 
     emit('status', { phase: 'started', backend: 'cli' });
 
-    const proc = spawn('claude', args, { cwd, env: buildEnvAndPath(), stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(resolveClaudePath() || 'claude', args, { cwd, env: buildEnvAndPath(), stdio: ['pipe', 'pipe', 'pipe'] });
     let buffer = '';
     let fullText = '';
     let stderr = '';
